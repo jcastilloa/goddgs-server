@@ -27,6 +27,9 @@ func TestPoolSkipsUnhealthyEntryAndCanRestoreIt(t *testing.T) {
 	pool := newStringPool(t, "direct-a", "tunnel-b")
 
 	pool.MarkUnhealthy("direct-a")
+	if pool.IsHealthy("direct-a") {
+		t.Fatal("IsHealthy(direct-a) = true, want false")
+	}
 	lease, err := pool.Select(context.Background())
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
@@ -36,12 +39,22 @@ func TestPoolSkipsUnhealthyEntryAndCanRestoreIt(t *testing.T) {
 	}
 
 	pool.MarkHealthy("direct-a")
+	if !pool.IsHealthy("direct-a") {
+		t.Fatal("IsHealthy(direct-a) = false, want true")
+	}
 	lease, err = pool.Select(context.Background())
 	if err != nil {
 		t.Fatalf("Select() after restore error = %v", err)
 	}
 	if lease.Key != "direct-a" {
 		t.Errorf("Select() after restore key = %q, want direct-a", lease.Key)
+	}
+}
+
+func TestPoolReportsUnknownEntryAsUnhealthy(t *testing.T) {
+	pool := newStringPool(t, "direct-a")
+	if pool.IsHealthy("missing") {
+		t.Error("IsHealthy(missing) = true, want false")
 	}
 }
 

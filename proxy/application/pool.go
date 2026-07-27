@@ -83,6 +83,18 @@ func (p *Pool[T]) MarkUnhealthy(key string) {
 	p.setHealth(key, false)
 }
 
+func (p *Pool[T]) IsHealthy(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, entry := range p.entries {
+		if entry.key == key {
+			return entry.healthy
+		}
+	}
+	return false
+}
+
 func (p *Pool[T]) setHealth(key string, healthy bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

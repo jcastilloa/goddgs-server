@@ -1,0 +1,133 @@
+package goddgs
+
+import (
+	"context"
+	"errors"
+	"net"
+	"reflect"
+	"syscall"
+	"testing"
+
+	ddgs "github.com/jcastilloa/goddgs"
+	"github.com/jcastilloa/goddgs-server/search/domain"
+)
+
+func TestDDGSClientDispatchesSearchCategoryAndPreservesValues(t *testing.T) {
+	source := &recordingSource{results: []ddgs.RawResult{{"number": 29_059, "nested": map[string]any{"value": nil}}}}
+	client := ddgsClient{source: source}
+	maxResults := 5
+	page := 2
+	request := domain.SearchRequest{
+		Category:   domain.CategoryImages,
+		Query:      "forest",
+		Region:     "es-es",
+		SafeSearch: "off",
+		TimeLimit:  "w",
+		MaxResults: &maxResults,
+		Page:       &page,
+		Backend:    "bing",
+		Images: domain.ImageOptions{
+			Size: "Large", Color: "Green", Type: "photo", Layout: "Wide", License: "Share",
+		},
+	}
+
+	got, err := client.Search(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, []domain.RawResult{{"number": 29_059, "nested": map[string]any{"value": nil}}}) {
+		t.Errorf("Search() = %#v", got)
+	}
+	if source.method != "images" || source.query != "forest" {
+		t.Errorf("source call = (%q, %q), want (images, forest)", source.method, source.query)
+	}
+	if source.optionCount != 11 {
+		t.Errorf("source option count = %d, want 11", source.optionCount)
+	}
+}
+
+func TestDDGSClientKeepsNonTransportErrors(t *testing.T) {
+	rateLimit := errors.New("rate limited")
+	client := ddgsClient{source: &recordingSource{searchError: rateLimit}}
+
+	_, err := client.Search(context.Background(), domain.SearchRequest{Category: domain.CategoryText, Query: "forest"})
+	if !errors.Is(err, rateLimit) {
+		t.Errorf("Search() error = %v, want rate-limit error", err)
+	}
+	if errors.Is(err, ErrTransport) {
+		t.Errorf("Search() error = %v must not classify as transport", err)
+	}
+}
+
+func TestDDGSClientClassifiesNetworkErrorsAsTransport(t *testing.T) {
+	networkError := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+	client := ddgsClient{source: &recordingSource{searchError: networkError}}
+
+	_, err := client.Search(context.Background(), domain.SearchRequest{Category: domain.CategoryText, Query: "forest"})
+	if !errors.Is(err, ErrTransport) {
+		t.Errorf("Search() error = %v, want ErrTransport", err)
+	}
+	if !errors.Is(err, networkError) {
+		t.Errorf("Search() error = %v, want network error", err)
+	}
+}
+
+func TestDDGSClientExtractForwardsFormat(t *testing.T) {
+	source := &recordingSource{extractResult: ddgs.ExtractResult{URL: "https://example.com", Content: []byte("raw")}}
+	client := ddgsClient{source: source}
+
+	got, err := client.Extract(context.Background(), domain.ExtractRequest{URL: "https://example.com", Format: "raw"})
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, domain.ExtractResult{URL: "https://example.com", Content: []byte("raw")}) {
+		t.Errorf("Extract() = %#v", got)
+	}
+	if source.method != "extract" || source.optionCount != 1 {
+		t.Errorf("source extract = (%q, %d options), want (extract, 1)", source.method, source.optionCount)
+	}
+}
+
+type recordingSource struct {
+	results       []ddgs.RawResult
+	searchError   error
+	extractResult ddgs.ExtractResult
+	extractError  error
+	method        string
+	query         string
+	optionCount   int
+}
+
+func (s *recordingSource) Text(_ context.Context, query string, options ...ddgs.SearchOption) ([]ddgs.RawResult, error) {
+	return s.search("text", query, len(options))
+}
+
+func (s *recordingSource) Images(_ context.Context, query string, options ...ddgs.SearchOption) ([]ddgs.RawResult, error) {
+	return s.search("images", query, len(options))
+}
+
+func (s *recordingSource) News(_ context.Context, query string, options ...ddgs.SearchOption) ([]ddgs.RawResult, error) {
+	return s.search("news", query, len(options))
+}
+
+func (s *recordingSource) Videos(_ context.Context, query string, options ...ddgs.SearchOption) ([]ddgs.RawResult, error) {
+	return s.search("videos", query, len(options))
+}
+
+func (s *recordingSource) Books(_ context.Context, query string, options ...ddgs.SearchOption) ([]ddgs.RawResult, error) {
+	return s.search("books", query, len(options))
+}
+
+func (s *recordingSource) Extract(_ context.Context, query string, options ...ddgs.ExtractOption) (ddgs.ExtractResult, error) {
+	s.method = "extract"
+	s.query = query
+	s.optionCount = len(options)
+	return s.extractResult, s.extractError
+}
+
+func (s *recordingSource) search(method, query string, optionCount int) ([]ddgs.RawResult, error) {
+	s.method = method
+	s.query = query
+	s.optionCount = optionCount
+	return s.results, s.searchError
+}
