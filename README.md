@@ -1,6 +1,24 @@
 # goddgs-server
 
-HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs), with one stable `goddgs` client per proxy and per-request rotation.
+HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs). It keeps one stable `goddgs` client per proxy and applies per-request rotation.
+
+## Table of contents
+
+- [Run](#run)
+- [API](#api)
+  - [Search parameters](#search-parameters)
+  - [Interactive API documentation](#interactive-api-documentation)
+  - [Find a news article and extract its body](#find-a-news-article-and-extract-its-body)
+  - [AI extraction mode](#ai-extraction-mode)
+  - [Research](#research)
+  - [Authentication](#authentication)
+- [Proxies](#proxies)
+  - [Choose a configuration](#choose-a-configuration)
+  - [No proxy: direct host connection](#no-proxy-direct-host-connection)
+  - [Existing direct proxy](#existing-direct-proxy)
+  - [SSH tunnel](#ssh-tunnel)
+  - [Mixed rotating pool](#mixed-rotating-pool)
+- [Verification](#verification)
 
 ## Run
 
@@ -15,17 +33,35 @@ Configuration is loaded from `./config.yaml` or `~/.config/goddgs-server/config.
 
 The metasearch routes use `GET` and the `service.api_prefix` prefix (default: `/v1`). Research uses `POST`.
 
-- `/v1/text`
-- `/v1/images`
-- `/v1/news`
-- `/v1/videos`
-- `/v1/books`
-- `/v1/extract`
-- `/v1/research` (`POST`)
-
-Text, image, news, and video search endpoints require either `q` or `query` (`q` wins when both are sent). Their defaults are `region=us-en`, `safesearch=moderate`, `max_results=10`, `page=1`, and `backend=auto`; `timelimit` is optional. Images additionally accept `size`, `color`, `type_image`, `layout`, and `license_image`; videos accept `resolution`, `duration`, and `license_videos`. Books support only the query, `max_results`, `page`, and `backend` parameters. `extract` accepts `url`, `format`, and `mode`.
+| Endpoint | Method |
+| --- | --- |
+| `/v1/text` | `GET` |
+| `/v1/images` | `GET` |
+| `/v1/news` | `GET` |
+| `/v1/videos` | `GET` |
+| `/v1/books` | `GET` |
+| `/v1/extract` | `GET` |
+| `/v1/research` | `POST` |
 
 Search results are returned without narrowing `goddgs` types: numbers, nested maps, and null values are preserved. Documentation is served at `/docs/`, and the OpenAPI specification at `/openapi.json`.
+
+### Search parameters
+
+The text, image, news, and video endpoints require either `q` or `query` (`q` wins when both are sent). Their defaults are:
+
+- `region=us-en`
+- `safesearch=moderate`
+- `max_results=10`
+- `page=1`
+- `backend=auto`
+- `timelimit` is optional.
+
+Additional parameters per endpoint:
+
+- **Images**: `size`, `color`, `type_image`, `layout`, and `license_image`.
+- **Videos**: `resolution`, `duration`, and `license_videos`.
+- **Books**: only `query`, `max_results`, `page`, and `backend`.
+- **`extract`**: `url`, `format`, and `mode`.
 
 ### Interactive API documentation
 
@@ -123,13 +159,33 @@ curl -sS -X POST 'http://localhost:8080/v1/research' \
   }' | jq .
 ```
 
-`query` is required. `report_language` is an ISO 639-1 code and defaults to `en`. `query_languages` controls the languages in which the query LLM creates search terms; it defaults to `["en"]`. `query_count` is the total number of generated queries, divided across those languages, and defaults to `10`. `results_per_query` also defaults to `10`.
+#### Parameters
+
+- `query` — **required**.
+- `report_language` — an ISO 639-1 code; defaults to `en`.
+- `query_languages` — controls the languages in which the query LLM creates search terms; defaults to `["en"]`.
+- `query_count` — the total number of generated queries, divided across those languages; defaults to `10`.
+- `results_per_query` — defaults to `10`.
 
 Set `region` to use one goddgs region for every query. If omitted, it is derived separately from the language of each generated query: `en` uses `us-en` and `es` uses `es-es`. Other query languages require an explicit `region`.
 
-Research attempts every unique URL returned by the searches, up to `query_count × results_per_query`; there is no independent URL limit. Any page that fails extraction, returns empty content, or duplicates another final URL is ignored silently. It is neither included in the report nor listed as a source. If no usable source remains, the endpoint returns `502`.
+#### Behavior
 
-Every successful response includes `diagnostics`. `diagnostics.backends` aggregates the actual completed goddgs backend attempts across generated-query searches: `name`, scheduler `provider`, `attempts`, `result_count`, and `error_count`. The duration fields are elapsed milliseconds: `query_planning_ms`, `search_ms`, `source_extraction_ms` (the parallel AI source-extraction stage), `report_generation_ms`, and `total_ms`. Backend diagnostics do not cover source-page downloads.
+Research attempts every unique URL returned by the searches, up to `query_count × results_per_query`; there is no independent URL limit. Any page that fails extraction, returns empty content, or duplicates another final URL is silently ignored — it is neither included in the report nor listed as a source. If no usable source remains, the endpoint returns `502`.
+
+#### Diagnostics
+
+Every successful response includes `diagnostics`. `diagnostics.backends` aggregates the actual completed goddgs backend attempts across generated-query searches: `name`, scheduler `provider`, `attempts`, `result_count`, and `error_count`. The duration fields are elapsed milliseconds:
+
+- `query_planning_ms`
+- `search_ms`
+- `source_extraction_ms` (the parallel AI source-extraction stage)
+- `report_generation_ms`
+- `total_ms`
+
+Backend diagnostics do not cover source-page downloads.
+
+#### Configuration
 
 Research needs the existing `llm` and `extract_ai` settings plus a global research timeout and separate LLM settings for query planning and report writing:
 
@@ -150,6 +206,8 @@ research:
 ```
 
 The query and report models each use their own model, temperature, timeout, and retry policy. `extract_ai` continues to control the separate AI extraction call made for every discovered source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
+
+### Authentication
 
 If `auth.token` is not empty, every route requires:
 
@@ -260,7 +318,7 @@ proxies:
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... proxy.example.net"
 ```
 
-The server tries the next healthy entry after a transport failure, up to `service.max_proxy_retries`. If every entry is unhealthy, the API returns `503` with `no healthy upstream connection available`. Connection failures return a descriptive `502` and are logged with the HTTP method, path, status, and underlying cause.
+The server tries the next healthy entry after a transport failure, up to `service.max_proxy_retries`. When no healthy entry is available for a request, the API returns `503` with `no healthy upstream connection available`. Failed requests are logged with the HTTP method, path, status, and underlying cause.
 
 ## Verification
 
