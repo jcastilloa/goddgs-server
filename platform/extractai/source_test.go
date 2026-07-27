@@ -9,8 +9,8 @@ import (
 	extractAIDomain "github.com/jcastilloa/goddgs-server/shared/extractai/domain"
 )
 
-func TestSourceFetchesOriginalHTMLThroughTheSearchExtractor(t *testing.T) {
-	extractor := &recordingExtractor{result: searchDomain.ExtractResult{URL: "https://example.com/final", Content: []byte("<article>Source</article>")}}
+func TestSourceFetchesCleanHTMLThroughTheSearchExtractor(t *testing.T) {
+	extractor := &recordingExtractor{result: searchDomain.ExtractResult{URL: "https://example.com/final", Content: "<article>Source</article>"}}
 	source := NewSource(extractor)
 
 	got, err := source.Fetch(context.Background(), extractAIDomain.Request{URL: "https://example.com/article"})
@@ -20,7 +20,7 @@ func TestSourceFetchesOriginalHTMLThroughTheSearchExtractor(t *testing.T) {
 	if got.URL != "https://example.com/final" || got.HTML != "<article>Source</article>" {
 		t.Errorf("Fetch() = %#v", got)
 	}
-	want := searchDomain.ExtractRequest{URL: "https://example.com/article", Format: "content"}
+	want := searchDomain.ExtractRequest{URL: "https://example.com/article", Format: "html"}
 	if len(extractor.requests) != 1 || extractor.requests[0] != want {
 		t.Errorf("extractor requests = %#v, want %#v", extractor.requests, []searchDomain.ExtractRequest{want})
 	}

@@ -28,7 +28,7 @@ func (s Source) Fetch(ctx context.Context, request domain.Request) (domain.Page,
 		return domain.Page{}, domain.ErrUnavailable
 	}
 
-	result, err := s.extractor.Extract(ctx, searchDomain.ExtractRequest{URL: request.URL, Format: "content"})
+	result, err := s.extractor.Extract(ctx, searchDomain.ExtractRequest{URL: request.URL, Format: "html"})
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("extract source HTML: %w", err)
 	}

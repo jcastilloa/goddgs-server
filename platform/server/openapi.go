@@ -142,7 +142,7 @@ func researchResultSchema() gin.H {
 func modeParameter() gin.H {
 	return gin.H{
 		"name": "mode", "in": "query", "required": false,
-		"description": "Extraction strategy. `heuristic` is the default and delegates to goddgs. `ai` downloads the source HTML through goddgs, sends it to the configured OpenAI-compatible LLM, and returns sanitized primary-content HTML.",
+		"description": "Extraction strategy. `heuristic` is the default and delegates to goddgs. `ai` extracts Markdown through goddgs, converts it to sanitized HTML, sends that clean HTML to the configured OpenAI-compatible LLM, and returns sanitized primary-content HTML.",
 		"schema":      gin.H{"type": "string", "default": "heuristic", "enum": []string{"heuristic", "ai"}},
 		"example":     "heuristic",
 	}
@@ -151,7 +151,7 @@ func modeParameter() gin.H {
 func extractResponses() gin.H {
 	return gin.H{
 		"200": gin.H{
-			"description": "Extraction completed. `Content` is determined by the selected mode.",
+			"description": "Extraction completed. `Content` is determined by the selected mode and format.",
 			"content": jsonContent(extractResultSchema(), gin.H{
 				"heuristic": gin.H{
 					"summary": "Heuristic extraction",
@@ -160,6 +160,10 @@ func extractResponses() gin.H {
 				"ai": gin.H{
 					"summary": "AI primary-content extraction",
 					"value":   gin.H{"URL": "https://example.com/article", "Content": "<article><h1>Article title</h1><p>Article body.</p></article>"},
+				},
+				"html": gin.H{
+					"summary": "Heuristic HTML extraction",
+					"value":   gin.H{"URL": "https://example.com/article", "Content": "<h1>Article title</h1><p>Article body.</p>"},
 				},
 			}),
 		},
@@ -175,10 +179,10 @@ func extractResponses() gin.H {
 func extractDescription() string {
 	return `Choose the extraction strategy with ` + "`mode`" + `.
 
-- ` + "`mode=heuristic`" + ` (default) preserves the existing goddgs extraction behavior. Use ` + "`format`" + ` to choose its output: ` + "`text_markdown`" + ` (default), ` + "`text_plain`" + `, ` + "`text_rich`" + `, ` + "`text`" + `, or ` + "`content`" + `.
-- ` + "`mode=ai`" + ` fetches the original HTML through goddgs and asks an OpenAI-compatible ` + "`POST /chat/completions`" + ` provider for the page's primary editorial content. The response is always sanitized HTML; ` + "`format`" + ` is ignored in this mode. Navigation, sidebars, ads, banners, cookie notices, related content, scripts, forms, embedded content, unsafe URLs, event handlers, and presentation attributes are removed. Links retain only ` + "`href`" + `; images retain only ` + "`src`" + ` and ` + "`alt`" + `. URLs are not rewritten. If no editorial content exists, ` + "`Content`" + ` is an empty string.
+- ` + "`mode=heuristic`" + ` (default) preserves the existing goddgs extraction behavior. Use ` + "`format`" + ` to choose its output: ` + "`text_markdown`" + ` (default), ` + "`text_plain`" + `, ` + "`text_rich`" + `, ` + "`text`" + `, ` + "`content`" + `, or ` + "`html`" + `. ` + "`html`" + ` renders the extracted Markdown as sanitized HTML. ` + "`content`" + ` returns the unprocessed source document and can be Base64-encoded in JSON.
+- ` + "`mode=ai`" + ` asks an OpenAI-compatible ` + "`POST /chat/completions`" + ` provider for the page's primary editorial content. It supplies the same sanitized HTML that heuristic ` + "`format=html`" + ` produces, so it does not send the source document, scripts, or page chrome to the model. The response is always sanitized HTML; ` + "`format`" + ` is ignored in this mode. Navigation, sidebars, ads, banners, cookie notices, related content, scripts, forms, embedded content, unsafe URLs, event handlers, and presentation attributes are removed. Links retain only ` + "`href`" + `; images retain only ` + "`src`" + ` and ` + "`alt`" + `. URLs are not rewritten. If no editorial content exists, ` + "`Content`" + ` is an empty string.
 
-AI mode requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.model`" + `, ` + "`extract_ai.timeout`" + `, ` + "`extract_ai.temperature`" + `, and ` + "`extract_ai.retries`" + `. It is not constrained by ` + "`service.request_timeout`" + `: fetching the source page through goddgs uses ` + "`service.request_timeout`" + `, then the LLM call uses ` + "`extract_ai.timeout`" + `. When it is not usable, this endpoint returns ` + "`503`" + ` with the missing or invalid configuration; ` + "`mode=heuristic`" + ` continues to work.`
+AI mode requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.model`" + `, ` + "`extract_ai.timeout`" + `, ` + "`extract_ai.temperature`" + `, and ` + "`extract_ai.retries`" + `. It is not constrained by ` + "`service.request_timeout`" + `: extracting the Markdown through goddgs uses ` + "`service.request_timeout`" + `, then the LLM call uses ` + "`extract_ai.timeout`" + `. When it is not usable, this endpoint returns ` + "`503`" + ` with the missing or invalid configuration; ` + "`mode=heuristic`" + ` continues to work.`
 }
 
 func extractURLParameter() gin.H {
@@ -193,10 +197,10 @@ func extractURLParameter() gin.H {
 func extractFormatParameter() gin.H {
 	return gin.H{
 		"name": "format", "in": "query", "required": false,
-		"description": "Output format used only by `mode=heuristic`. Ignored by `mode=ai`, which always returns sanitized HTML.",
+		"description": "Output format used only by `mode=heuristic`. `html` renders extracted Markdown as sanitized HTML. `content` returns the unprocessed source document, which can be Base64-encoded in JSON. Ignored by `mode=ai`, which always returns sanitized HTML.",
 		"schema": gin.H{
 			"type": "string", "default": "text_markdown",
-			"enum": []string{"text_markdown", "text_plain", "text_rich", "text", "content"},
+			"enum": []string{"text_markdown", "text_plain", "text_rich", "text", "content", "html"},
 		},
 		"example": "text_plain",
 	}

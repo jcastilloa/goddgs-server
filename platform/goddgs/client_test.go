@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -155,6 +156,31 @@ func TestDDGSClientExtractUsesDefaultFormatWhenOmitted(t *testing.T) {
 	}
 	if source.optionCount != 0 {
 		t.Errorf("extract option count = %d, want 0", source.optionCount)
+	}
+}
+
+func TestDDGSClientRendersSanitizedHTMLFromMarkdown(t *testing.T) {
+	source := &recordingSource{extractResult: ddgs.ExtractResult{
+		URL:     "https://example.com/article",
+		Content: "# Article title\n\nText with [a link](https://example.com/source).\n\n<script>alert('x')</script>",
+	}}
+	client := ddgsClient{source: source}
+
+	got, err := client.Extract(context.Background(), domain.ExtractRequest{URL: "https://example.com/article", Format: "html"})
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	content, ok := got.Content.(string)
+	if !ok {
+		t.Fatalf("Content = %T, want string", got.Content)
+	}
+	for _, expected := range []string{"<h1>Article title</h1>", "<p>Text with <a href=\"https://example.com/source\">a link</a>.</p>"} {
+		if !strings.Contains(content, expected) {
+			t.Errorf("Content = %q, want %q", content, expected)
+		}
+	}
+	if strings.Contains(strings.ToLower(content), "script") {
+		t.Errorf("Content = %q, must not contain script", content)
 	}
 }
 

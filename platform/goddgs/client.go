@@ -10,6 +10,7 @@ import (
 
 	ddgs "github.com/jcastilloa/goddgs"
 	"github.com/jcastilloa/goddgs-server/search/domain"
+	extractAIApplication "github.com/jcastilloa/goddgs-server/shared/extractai/application"
 )
 
 type ddgsClient struct {
@@ -52,6 +53,13 @@ func (c ddgsClient) Extract(ctx context.Context, request domain.ExtractRequest) 
 	result, err := c.source.Extract(ctx, request.URL, options...)
 	if err != nil {
 		return domain.ExtractResult{}, classifySourceError(err)
+	}
+	if request.Format == "html" {
+		content, err := extractAIApplication.RenderMarkdownHTML(extractedText(result.Content))
+		if err != nil {
+			return domain.ExtractResult{}, err
+		}
+		return domain.ExtractResult{URL: result.URL, Content: content}, nil
 	}
 	return domain.ExtractResult{URL: result.URL, Content: result.Content}, nil
 }
@@ -139,7 +147,21 @@ func extractOptions(request domain.ExtractRequest) []ddgs.ExtractOption {
 	if request.Format == "" {
 		return nil
 	}
+	if request.Format == "html" {
+		return []ddgs.ExtractOption{ddgs.WithExtractFormat("text_markdown")}
+	}
 	return []ddgs.ExtractOption{ddgs.WithExtractFormat(request.Format)}
+}
+
+func extractedText(content any) string {
+	switch value := content.(type) {
+	case string:
+		return value
+	case []byte:
+		return string(value)
+	default:
+		return ""
+	}
 }
 
 func convertResults(results []ddgs.RawResult) []domain.RawResult {

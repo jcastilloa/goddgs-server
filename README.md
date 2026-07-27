@@ -75,16 +75,18 @@ Use `text_plain` for clean, readable text. `text_markdown` is the default, `text
 
 ### AI extraction mode
 
-`/v1/extract` defaults to `mode=heuristic`, which preserves the existing `goddgs` extraction behavior. Set `mode=ai` to fetch the source HTML through `goddgs`, ask a configured OpenAI-compatible LLM for the page's primary editorial content, and return a sanitized HTML fragment. In AI mode, `format` is ignored because the response is always clean HTML. The server removes scripts, event handlers, embedded content, forms, presentation attributes, and unsafe URLs from the model output. It retains only `href` on links and `src`/`alt` on images, without resolving or rewriting URLs. If no editorial content is found, `Content` is an empty string.
+`/v1/extract` defaults to `mode=heuristic`, which preserves the existing `goddgs` extraction behavior. Use `format=html` to render its extracted Markdown as a sanitized HTML fragment; it is the convenient HTML response for clients. `format=content` instead returns the unprocessed source document and appears Base64-encoded in JSON because it is binary content.
+
+Set `mode=ai` to send the same sanitized HTML produced by heuristic `format=html` to a configured OpenAI-compatible LLM for primary-content selection. The model never receives the full source document, including scripts and page chrome. In AI mode, `format` is ignored because the response is always clean HTML. The server removes scripts, event handlers, embedded content, forms, presentation attributes, and unsafe URLs from the model output. It retains only `href` on links and `src`/`alt` on images, without resolving or rewriting URLs. If no editorial content is found, `Content` is an empty string.
 
 ```sh
 curl -sG 'http://localhost:8080/v1/extract' \
   --data-urlencode 'url=https://example.com/article' \
-  --data-urlencode 'mode=ai' |
+  --data-urlencode 'format=html' |
 jq -r '.Content'
 ```
 
-AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required. It is not constrained by `service.request_timeout`: fetching the source page through goddgs uses that timeout, and then the LLM call uses `extract_ai.timeout`.
+AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required. It is not constrained by `service.request_timeout`: extracting Markdown through goddgs uses that timeout, and then the LLM call uses `extract_ai.timeout`.
 
 ```yaml
 llm:

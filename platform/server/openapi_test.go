@@ -37,7 +37,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	extractPath := paths["/v1/extract"].(map[string]any)
 	extractGet := extractPath["get"].(map[string]any)
-	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format", "service.request_timeout", "extract_ai.timeout") {
+	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format=html", "service.request_timeout", "extract_ai.timeout") {
 		t.Errorf("extract description = %q", description)
 	}
 	parameters := extractGet["parameters"].([]any)
@@ -46,6 +46,11 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	if parameters[0].(map[string]any)["description"] == "" || parameters[1].(map[string]any)["description"] == "" || parameters[2].(map[string]any)["description"] == "" {
 		t.Errorf("extract parameters need descriptions = %#v", parameters)
+	}
+	format := parameters[1].(map[string]any)
+	formats := format["schema"].(map[string]any)["enum"].([]any)
+	if !containsString(formats, "html") {
+		t.Errorf("extract formats = %#v, want html", formats)
 	}
 	responses := extractGet["responses"].(map[string]any)
 	if responses["503"].(map[string]any)["description"] != "AI extraction is not configured or unavailable. Heuristic extraction remains available." {
@@ -182,6 +187,15 @@ func containsAll(value string, values ...string) bool {
 		}
 	}
 	return true
+}
+
+func containsString(values []any, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestServerProtectsDocumentationWhenAuthenticationIsEnabled(t *testing.T) {
