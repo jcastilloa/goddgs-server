@@ -23,7 +23,7 @@ func New(container di.Container, apiPrefix, version, authToken string, requestTi
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
 	engine.Use(authentication(authToken))
-	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research"))
+	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research", normalizePrefix(apiPrefix)+"/extract"))
 
 	s := &Server{engine: engine, container: container}
 	s.registerRoutes(apiPrefix)
@@ -31,16 +31,13 @@ func New(container di.Container, apiPrefix, version, authToken string, requestTi
 	return s
 }
 
-func requestTimeoutMiddleware(timeout, researchTimeout time.Duration, researchPath string) gin.HandlerFunc {
+func requestTimeoutMiddleware(timeout, researchTimeout time.Duration, researchPath, extractPath string) gin.HandlerFunc {
 	if timeout <= 0 && researchTimeout <= 0 {
 		return func(*gin.Context) {}
 	}
 
 	return func(ginContext *gin.Context) {
-		requestTimeout := timeout
-		if ginContext.Request.Method == http.MethodPost && ginContext.Request.URL.Path == researchPath && researchTimeout > 0 {
-			requestTimeout = researchTimeout
-		}
+		requestTimeout := selectedRequestTimeout(ginContext.Request, timeout, researchTimeout, researchPath, extractPath)
 		if requestTimeout <= 0 {
 			ginContext.Next()
 			return
@@ -50,6 +47,16 @@ func requestTimeoutMiddleware(timeout, researchTimeout time.Duration, researchPa
 		ginContext.Request = ginContext.Request.WithContext(requestContext)
 		ginContext.Next()
 	}
+}
+
+func selectedRequestTimeout(request *http.Request, timeout, researchTimeout time.Duration, researchPath, extractPath string) time.Duration {
+	if request.Method == http.MethodPost && request.URL.Path == researchPath && researchTimeout > 0 {
+		return researchTimeout
+	}
+	if request.Method == http.MethodGet && request.URL.Path == extractPath && strings.EqualFold(strings.TrimSpace(request.URL.Query().Get("mode")), "ai") {
+		return 0
+	}
+	return timeout
 }
 
 func (s *Server) Run(ctx context.Context, address string) error {

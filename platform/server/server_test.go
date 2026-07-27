@@ -106,10 +106,18 @@ func TestServerAppliesRequestTimeout(t *testing.T) {
 	}
 }
 
-func TestResearchUsesItsDedicatedTimeout(t *testing.T) {
+func TestRequestTimeoutUsesDedicatedTimeouts(t *testing.T) {
 	engine := gin.New()
-	engine.Use(requestTimeoutMiddleware(time.Millisecond, 40*time.Millisecond, "/v1/research"))
+	engine.Use(requestTimeoutMiddleware(time.Millisecond, 40*time.Millisecond, "/v1/research", "/v1/extract"))
 	engine.POST("/v1/research", func(context *gin.Context) {
+		select {
+		case <-time.After(10 * time.Millisecond):
+			context.Status(http.StatusOK)
+		case <-context.Request.Context().Done():
+			context.Status(http.StatusGatewayTimeout)
+		}
+	})
+	engine.GET("/v1/extract", func(context *gin.Context) {
 		select {
 		case <-time.After(10 * time.Millisecond):
 			context.Status(http.StatusOK)
@@ -122,19 +130,24 @@ func TestResearchUsesItsDedicatedTimeout(t *testing.T) {
 		context.Status(http.StatusGatewayTimeout)
 	})
 
-	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodPost, "/v1/research", nil),
-		httptest.NewRequest(http.MethodGet, "/v1/text", nil),
-	} {
-		recorder := httptest.NewRecorder()
-		engine.ServeHTTP(recorder, request)
-		want := http.StatusGatewayTimeout
-		if request.URL.Path == "/v1/research" {
-			want = http.StatusOK
-		}
-		if recorder.Code != want {
-			t.Errorf("%s %s status = %d, want %d", request.Method, request.URL.Path, recorder.Code, want)
-		}
+	tests := []struct {
+		name    string
+		request *http.Request
+		want    int
+	}{
+		{name: "research", request: httptest.NewRequest(http.MethodPost, "/v1/research", nil), want: http.StatusOK},
+		{name: "AI extraction", request: httptest.NewRequest(http.MethodGet, "/v1/extract?mode=ai", nil), want: http.StatusOK},
+		{name: "heuristic extraction", request: httptest.NewRequest(http.MethodGet, "/v1/extract", nil), want: http.StatusGatewayTimeout},
+		{name: "search", request: httptest.NewRequest(http.MethodGet, "/v1/text", nil), want: http.StatusGatewayTimeout},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, test.request)
+			if recorder.Code != test.want {
+				t.Errorf("%s %s status = %d, want %d", test.request.Method, test.request.URL.String(), recorder.Code, test.want)
+			}
+		})
 	}
 }
 

@@ -37,7 +37,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	extractPath := paths["/v1/extract"].(map[string]any)
 	extractGet := extractPath["get"].(map[string]any)
-	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format") {
+	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format", "service.request_timeout", "extract_ai.timeout") {
 		t.Errorf("extract description = %q", description)
 	}
 	parameters := extractGet["parameters"].([]any)

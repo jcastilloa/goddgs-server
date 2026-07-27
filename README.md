@@ -84,7 +84,7 @@ curl -sG 'http://localhost:8080/v1/extract' \
 jq -r '.Content'
 ```
 
-AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required.
+AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required. It is not constrained by `service.request_timeout`: fetching the source page through goddgs uses that timeout, and then the LLM call uses `extract_ai.timeout`.
 
 ```yaml
 llm:
