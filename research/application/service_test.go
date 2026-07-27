@@ -25,6 +25,9 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 		"fecha estreno ET": {
 			{"href": "https://example.com/et", "title": "Duplicate"},
 		},
+	}, diagnostics: map[string][]searchDomain.SearchDiagnostic{
+		"E.T. release date": {{Backend: "wikipedia", Provider: "wikipedia", ResultCount: 2}, {Backend: "google", Provider: "google", ResultCount: 1}},
+		"fecha estreno ET":  {{Backend: "google", Provider: "google", ResultCount: 3}, {Backend: "brave", Provider: "brave", Err: errors.New("blocked")}},
 	}}
 	extractor := &recordingExtractor{results: map[string]extractAIDomain.Result{
 		"https://example.com/et":         {URL: "https://example.com/et", Content: "<article><p>E.T. premiered in 1982.</p></article>"},
@@ -55,6 +58,9 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 		{Category: searchDomain.CategoryText, Query: "E.T. release date", Region: "us-en", MaxResults: &maxResults},
 		{Category: searchDomain.CategoryText, Query: "fecha estreno ET", Region: "es-es", MaxResults: &maxResults},
 	}
+	for index := range searcher.requests {
+		searcher.requests[index].Diagnostics = nil
+	}
 	if !reflect.DeepEqual(searcher.requests, wantSearches) {
 		t.Errorf("searches = %#v, want %#v", searcher.requests, wantSearches)
 	}
@@ -63,6 +69,17 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 	}
 	if len(reporter.requests) != 1 || len(reporter.requests[0].Sources) != 2 || reporter.requests[0].Language != "en" {
 		t.Errorf("report requests = %#v", reporter.requests)
+	}
+	wantBackends := []domain.BackendDiagnostic{
+		{Name: "brave", Provider: "brave", Attempts: 1, ErrorCount: 1},
+		{Name: "google", Provider: "google", Attempts: 2, ResultCount: 4},
+		{Name: "wikipedia", Provider: "wikipedia", Attempts: 1, ResultCount: 2},
+	}
+	if !reflect.DeepEqual(got.Diagnostics.Backends, wantBackends) {
+		t.Errorf("diagnostic backends = %#v, want %#v", got.Diagnostics.Backends, wantBackends)
+	}
+	if got.Diagnostics.QueryPlanningMS < 0 || got.Diagnostics.SearchMS < 0 || got.Diagnostics.SourceExtractionMS < 0 || got.Diagnostics.ReportGenerationMS < 0 || got.Diagnostics.TotalMS < 0 {
+		t.Errorf("diagnostic timings = %#v, want non-negative values", got.Diagnostics)
 	}
 }
 
@@ -249,13 +266,19 @@ func intPointer(value int) *int {
 }
 
 type recordingSearcher struct {
-	requests []searchDomain.SearchRequest
-	results  map[string][]searchDomain.RawResult
-	err      error
+	requests    []searchDomain.SearchRequest
+	results     map[string][]searchDomain.RawResult
+	diagnostics map[string][]searchDomain.SearchDiagnostic
+	err         error
 }
 
 func (s *recordingSearcher) Search(_ context.Context, request searchDomain.SearchRequest) ([]searchDomain.RawResult, error) {
 	s.requests = append(s.requests, request)
+	if request.Diagnostics != nil && request.Diagnostics.OnComplete != nil {
+		for _, diagnostic := range s.diagnostics[request.Query] {
+			request.Diagnostics.OnComplete(diagnostic)
+		}
+	}
 	return s.results[request.Query], s.err
 }
 

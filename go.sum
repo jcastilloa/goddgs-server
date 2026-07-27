@@ -63,6 +63,8 @@ github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX
 github.com/google/gofuzz v1.0.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
 github.com/jcastilloa/goddgs v0.0.0-20260726120327-219272ebca2e h1:7hE1p8ZN9nOWzssF3z3/+zU9hLb+aIYtpT1QuVVHNoE=
 github.com/jcastilloa/goddgs v0.0.0-20260726120327-219272ebca2e/go.mod h1:fCLR3Ocum0ECK9XRD9OeiY2CGOTqLEPAVhSyT2c8czE=
+github.com/jcastilloa/goddgs v0.0.0-20260727140836-e245de52fd80 h1:Ko1d9F2gypWUXoMbci4GP/aOUpKrrO3/RtT1m3JAhes=
+github.com/jcastilloa/goddgs v0.0.0-20260727140836-e245de52fd80/go.mod h1:fCLR3Ocum0ECK9XRD9OeiY2CGOTqLEPAVhSyT2c8czE=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=

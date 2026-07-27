@@ -96,6 +96,7 @@ func researchDescription() string {
 - ` + "`results_per_query`" + ` defaults to ` + "`10`" + `. The service attempts every unique URL returned, up to ` + "`query_count × results_per_query`" + `; it does not have a separate source limit.
 - ` + "`region`" + ` applies to every search when present. Otherwise it is derived per query language: ` + "`en → us-en`" + ` and ` + "`es → es-es`" + `. An unsupported query language requires an explicit region.
 - Failed, empty, invalid, or duplicate extractions are omitted silently. The report and ` + "`sources`" + ` contain only successfully extracted sources selected by the report model. All cited source IDs are verified by the server, and returned HTML is sanitized.
+- ` + "`diagnostics`" + ` reports actual completed goddgs backend attempts (including result and error counts) and elapsed milliseconds for query planning, searches, parallel source extraction, report generation, and the total operation. Backend counts cover generated-query searches only, not the source page downloads.
 
 Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.query_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
 }
@@ -117,7 +118,7 @@ func researchRequestSchema() gin.H {
 
 func researchResponses() gin.H {
 	return gin.H{
-		"200": jsonResponse("Research completed. Individual inaccessible sources are omitted without being reported.", researchResultSchema(), "research", gin.H{"report_html": "<article><h1>E.T.</h1><p>E.T. premiered in 1982 and opened with …</p></article>", "sources": []gin.H{{"url": "https://example.com/et", "title": "E.T. release and box office"}}}),
+		"200": jsonResponse("Research completed. Individual inaccessible sources are omitted without being reported.", researchResultSchema(), "research", gin.H{"report_html": "<article><h1>E.T.</h1><p>E.T. premiered in 1982 and opened with …</p></article>", "sources": []gin.H{{"url": "https://example.com/et", "title": "E.T. release and box office"}}, "diagnostics": gin.H{"backends": []gin.H{{"name": "google", "provider": "google", "attempts": 2, "result_count": 10, "error_count": 0}}, "query_planning_ms": 220, "search_ms": 1400, "source_extraction_ms": 8300, "report_generation_ms": 570, "total_ms": 10490}}),
 		"400": errorResponse("The JSON body or research parameters are invalid.", "invalid_request", "invalid research request: query is required"),
 		"401": errorResponse("Authentication is required when enabled.", "authentication_required", "unauthorized"),
 		"429": errorResponse("A configured LLM rate limited research.", "rate_limited", "research rate limited"),
@@ -131,10 +132,18 @@ func researchResponses() gin.H {
 func researchResultSchema() gin.H {
 	return gin.H{
 		"type":     "object",
-		"required": []string{"report_html", "sources"},
+		"required": []string{"report_html", "sources", "diagnostics"},
 		"properties": gin.H{
 			"report_html": gin.H{"type": "string", "description": "Sanitized HTML research report."},
 			"sources":     gin.H{"type": "array", "description": "Successfully extracted sources selected for the report.", "items": gin.H{"type": "object", "required": []string{"url", "title"}, "properties": gin.H{"url": gin.H{"type": "string", "format": "uri"}, "title": gin.H{"type": "string"}}}},
+			"diagnostics": gin.H{"type": "object", "description": "Observed research workflow timings and completed search-backend attempts. Durations are elapsed milliseconds; backend data excludes source page downloads.", "required": []string{"backends", "query_planning_ms", "search_ms", "source_extraction_ms", "report_generation_ms", "total_ms"}, "properties": gin.H{
+				"backends":             gin.H{"type": "array", "description": "Completed goddgs backend attempts aggregated across generated queries.", "items": gin.H{"type": "object", "required": []string{"name", "provider", "attempts", "result_count", "error_count"}, "properties": gin.H{"name": gin.H{"type": "string", "description": "goddgs backend name."}, "provider": gin.H{"type": "string", "description": "goddgs provider label used for scheduler de-duplication."}, "attempts": gin.H{"type": "integer", "minimum": 0}, "result_count": gin.H{"type": "integer", "minimum": 0}, "error_count": gin.H{"type": "integer", "minimum": 0}}}},
+				"query_planning_ms":    gin.H{"type": "integer", "minimum": 0, "description": "Query-planning LLM elapsed time in milliseconds."},
+				"search_ms":            gin.H{"type": "integer", "minimum": 0, "description": "All generated-query searches elapsed time in milliseconds."},
+				"source_extraction_ms": gin.H{"type": "integer", "minimum": 0, "description": "Parallel source AI extraction elapsed time in milliseconds."},
+				"report_generation_ms": gin.H{"type": "integer", "minimum": 0, "description": "Report-writing LLM elapsed time in milliseconds."},
+				"total_ms":             gin.H{"type": "integer", "minimum": 0, "description": "Total successful research operation elapsed time in milliseconds."},
+			}},
 		},
 	}
 }

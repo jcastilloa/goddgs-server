@@ -129,6 +129,8 @@ Set `region` to use one goddgs region for every query. If omitted, it is derived
 
 Research attempts every unique URL returned by the searches, up to `query_count × results_per_query`; there is no independent URL limit. Any page that fails extraction, returns empty content, or duplicates another final URL is ignored silently. It is neither included in the report nor listed as a source. If no usable source remains, the endpoint returns `502`.
 
+Every successful response includes `diagnostics`. `diagnostics.backends` aggregates the actual completed goddgs backend attempts across generated-query searches: `name`, scheduler `provider`, `attempts`, `result_count`, and `error_count`. The duration fields are elapsed milliseconds: `query_planning_ms`, `search_ms`, `source_extraction_ms` (the parallel AI source-extraction stage), `report_generation_ms`, and `total_ms`. Backend diagnostics do not cover source-page downloads.
+
 Research needs the existing `llm` and `extract_ai` settings plus a global research timeout and separate LLM settings for query planning and report writing:
 
 ```yaml

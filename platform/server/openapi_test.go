@@ -89,7 +89,7 @@ func assertResearchDocumentation(t *testing.T, paths map[string]any) {
 		t.Fatalf("research operation = %#v", path)
 	}
 	description := operation["description"].(string)
-	if !containsAll(description, "query_count × results_per_query", "en → us-en", "es → es-es", "omitted silently", "research.query_ai.*") {
+	if !containsAll(description, "query_count × results_per_query", "en → us-en", "es → es-es", "omitted silently", "research.query_ai.*", "diagnostics", "source page downloads") {
 		t.Errorf("research description = %q", description)
 	}
 	requestBody := operation["requestBody"].(map[string]any)
@@ -111,6 +111,13 @@ func assertResearchDocumentation(t *testing.T, paths map[string]any) {
 	for _, status := range []string{"200", "400", "401", "429", "499", "502", "503", "504"} {
 		if responses[status] == nil || responses[status].(map[string]any)["content"] == nil {
 			t.Errorf("research responses = %#v, missing documented %s", responses, status)
+		}
+	}
+	responseSchema := responses["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	diagnostics := responseSchema["properties"].(map[string]any)["diagnostics"].(map[string]any)
+	for _, field := range []string{"backends", "query_planning_ms", "search_ms", "source_extraction_ms", "report_generation_ms", "total_ms"} {
+		if diagnostics["properties"].(map[string]any)[field] == nil {
+			t.Errorf("research diagnostics = %#v, missing %s", diagnostics, field)
 		}
 	}
 }

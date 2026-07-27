@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jcastilloa/goddgs-server/research/domain"
 	searchDomain "github.com/jcastilloa/goddgs-server/search/domain"
@@ -72,6 +73,8 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 		return domain.Result{}, domain.ErrUnavailable
 	}
 
+	startedAt := time.Now()
+	planningStartedAt := time.Now()
 	queries, err := s.planner.Plan(ctx, normalized)
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("generate research queries: %w", err)
@@ -79,19 +82,38 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 	if err := validateQueries(normalized, queries); err != nil {
 		return domain.Result{}, err
 	}
+	planningDuration := time.Since(planningStartedAt)
 
-	sources := s.extractSources(ctx, normalized, queries)
+	diagnostics := newDiagnostics()
+	searchStartedAt := time.Now()
+	urls := s.searchURLs(ctx, normalized, queries, diagnostics)
+	searchDuration := time.Since(searchStartedAt)
+	extractionStartedAt := time.Now()
+	sources := s.extractedSources(ctx, urls)
+	extractionDuration := time.Since(extractionStartedAt)
 	if err := ctx.Err(); err != nil {
 		return domain.Result{}, err
 	}
 	if len(sources) == 0 {
 		return domain.Result{}, domain.ErrNoUsableSources
 	}
+	reportStartedAt := time.Now()
 	report, err := s.reporter.Write(ctx, ReportRequest{Query: normalized.Query, Language: normalized.ReportLanguage, Sources: sources})
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("write research report: %w", err)
 	}
-	return buildResult(report, sources)
+	result, err := buildResult(report, sources)
+	if err != nil {
+		return domain.Result{}, err
+	}
+	result.Diagnostics = diagnostics.result(
+		planningDuration,
+		searchDuration,
+		extractionDuration,
+		time.Since(reportStartedAt),
+		time.Since(startedAt),
+	)
+	return result, nil
 }
 
 func validateQueries(request domain.NormalizedRequest, queries []domain.GeneratedQuery) error {
@@ -123,8 +145,7 @@ func validateQueries(request domain.NormalizedRequest, queries []domain.Generate
 	return nil
 }
 
-func (s Service) extractSources(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery) []ReportSource {
-	urls := s.searchURLs(ctx, request, queries)
+func (s Service) extractedSources(ctx context.Context, urls []candidateSource) []ReportSource {
 	extracted := s.extractAll(ctx, urls)
 	sources := make([]ReportSource, 0, len(urls))
 	seenFinalURLs := make(map[string]struct{}, len(urls))
@@ -201,7 +222,7 @@ func (s Service) extractSource(ctx context.Context, candidate candidateSource) *
 	return &ReportSource{URL: finalURL, Title: candidate.Title, Content: content}
 }
 
-func (s Service) searchURLs(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery) []candidateSource {
+func (s Service) searchURLs(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery, diagnostics *researchDiagnostics) []candidateSource {
 	urls := make([]candidateSource, 0, request.QueryCount*request.ResultsPerQuery)
 	seenURLs := make(map[string]struct{}, cap(urls))
 	for _, query := range queries {
@@ -213,7 +234,15 @@ func (s Service) searchURLs(ctx context.Context, request domain.NormalizedReques
 			return urls
 		}
 		maxResults := request.ResultsPerQuery
-		results, err := s.searcher.Search(ctx, searchDomain.SearchRequest{Category: searchDomain.CategoryText, Query: query.Query, Region: region, MaxResults: &maxResults})
+		results, err := s.searcher.Search(ctx, searchDomain.SearchRequest{
+			Category:   searchDomain.CategoryText,
+			Query:      query.Query,
+			Region:     region,
+			MaxResults: &maxResults,
+			Diagnostics: &searchDomain.SearchDiagnostics{
+				OnComplete: diagnostics.record,
+			},
+		})
 		if err != nil {
 			continue
 		}
@@ -235,6 +264,48 @@ func (s Service) searchURLs(ctx context.Context, request domain.NormalizedReques
 		}
 	}
 	return urls
+}
+
+type researchDiagnostics struct {
+	mu       sync.Mutex
+	backends map[string]domain.BackendDiagnostic
+}
+
+func newDiagnostics() *researchDiagnostics {
+	return &researchDiagnostics{backends: make(map[string]domain.BackendDiagnostic)}
+}
+
+func (d *researchDiagnostics) record(diagnostic searchDomain.SearchDiagnostic) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	backend := d.backends[diagnostic.Backend]
+	backend.Name = diagnostic.Backend
+	backend.Provider = diagnostic.Provider
+	backend.Attempts++
+	backend.ResultCount += diagnostic.ResultCount
+	if diagnostic.Err != nil {
+		backend.ErrorCount++
+	}
+	d.backends[diagnostic.Backend] = backend
+}
+
+func (d *researchDiagnostics) result(planning, search, extraction, report, total time.Duration) domain.Diagnostics {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	backends := make([]domain.BackendDiagnostic, 0, len(d.backends))
+	for _, backend := range d.backends {
+		backends = append(backends, backend)
+	}
+	result := domain.Diagnostics{
+		Backends:           backends,
+		QueryPlanningMS:    planning.Milliseconds(),
+		SearchMS:           search.Milliseconds(),
+		SourceExtractionMS: extraction.Milliseconds(),
+		ReportGenerationMS: report.Milliseconds(),
+		TotalMS:            total.Milliseconds(),
+	}
+	result.SortBackends()
+	return result
 }
 
 type candidateSource struct {

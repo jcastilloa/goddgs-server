@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -48,8 +49,32 @@ type Source struct {
 }
 
 type Result struct {
-	ReportHTML string   `json:"report_html"`
-	Sources    []Source `json:"sources"`
+	ReportHTML  string      `json:"report_html"`
+	Sources     []Source    `json:"sources"`
+	Diagnostics Diagnostics `json:"diagnostics"`
+}
+
+type Diagnostics struct {
+	Backends           []BackendDiagnostic `json:"backends"`
+	QueryPlanningMS    int64               `json:"query_planning_ms"`
+	SearchMS           int64               `json:"search_ms"`
+	SourceExtractionMS int64               `json:"source_extraction_ms"`
+	ReportGenerationMS int64               `json:"report_generation_ms"`
+	TotalMS            int64               `json:"total_ms"`
+}
+
+type BackendDiagnostic struct {
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	Attempts    int    `json:"attempts"`
+	ResultCount int    `json:"result_count"`
+	ErrorCount  int    `json:"error_count"`
+}
+
+func (d *Diagnostics) SortBackends() {
+	sort.Slice(d.Backends, func(left, right int) bool {
+		return d.Backends[left].Name < d.Backends[right].Name
+	})
 }
 
 func (r Request) Normalize() (NormalizedRequest, error) {

@@ -27,16 +27,28 @@ const (
 type RawResult map[string]any
 
 type SearchRequest struct {
-	Category   Category
-	Query      string
-	Region     string
-	SafeSearch string
-	TimeLimit  string
-	MaxResults *int
-	Page       *int
-	Backend    string
-	Images     ImageOptions
-	Videos     VideoOptions
+	Category    Category
+	Query       string
+	Region      string
+	SafeSearch  string
+	TimeLimit   string
+	MaxResults  *int
+	Page        *int
+	Backend     string
+	Images      ImageOptions
+	Videos      VideoOptions
+	Diagnostics *SearchDiagnostics
+}
+
+type SearchDiagnostic struct {
+	Backend     string
+	Provider    string
+	ResultCount int
+	Err         error
+}
+
+type SearchDiagnostics struct {
+	OnComplete func(SearchDiagnostic)
 }
 
 type ImageOptions struct {

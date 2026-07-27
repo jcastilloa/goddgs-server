@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/gin-gonic/gin v1.11.0
-	github.com/jcastilloa/goddgs v0.0.0-20260726120327-219272ebca2e
+	github.com/jcastilloa/goddgs v0.0.0-20260727140836-e245de52fd80
 	github.com/sarulabs/di v2.0.0+incompatible
 	github.com/spf13/viper v1.21.0
 	github.com/swaggo/files v1.0.1

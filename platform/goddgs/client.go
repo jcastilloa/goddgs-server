@@ -83,7 +83,7 @@ func (c ddgsClient) search(ctx context.Context, request domain.SearchRequest) ([
 }
 
 func searchOptions(request domain.SearchRequest) []ddgs.SearchOption {
-	options := make([]ddgs.SearchOption, 0, 11)
+	options := make([]ddgs.SearchOption, 0, 12)
 	if request.Region != "" {
 		options = append(options, ddgs.WithRegion(request.Region))
 	}
@@ -107,6 +107,16 @@ func searchOptions(request domain.SearchRequest) []ddgs.SearchOption {
 	}
 	if request.Category == domain.CategoryVideos {
 		options = appendVideoOptions(options, request.Videos)
+	}
+	if request.Diagnostics != nil && request.Diagnostics.OnComplete != nil {
+		options = append(options, ddgs.WithSearchDiagnostics(func(diagnostic ddgs.SearchDiagnostic) {
+			request.Diagnostics.OnComplete(domain.SearchDiagnostic{
+				Backend:     diagnostic.Backend,
+				Provider:    diagnostic.Provider,
+				ResultCount: diagnostic.ResultCount,
+				Err:         diagnostic.Err,
+			})
+		}))
 	}
 	return options
 }
