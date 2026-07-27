@@ -1,19 +1,19 @@
 # goddgs-server
 
-Servidor HTTP REST para [goddgs](https://github.com/jcastilloa/goddgs), con un cliente `goddgs` estable por proxy y rotación por petición.
+HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs), with one stable `goddgs` client per proxy and per-request rotation.
 
-## Ejecutar
+## Run
 
 ```sh
 cp config.sample.yaml config.yaml
 go run ./cmd/api
 ```
 
-La configuración se busca en `./config.yaml` o en `~/.config/goddgs-server/config.yaml`. Las variables de entorno siguen el patrón de Viper, por ejemplo `SERVICE_PORT=8081`.
+Configuration is loaded from `./config.yaml` or `~/.config/goddgs-server/config.yaml`. Environment variables follow Viper's naming convention; for example, `SERVICE_PORT=8081`.
 
 ## API
 
-Todas las rutas de búsqueda usan `GET` y el prefijo `service.api_prefix` (por defecto `/v1`).
+All search routes use `GET` and the `service.api_prefix` prefix (default: `/v1`).
 
 - `/v1/text`
 - `/v1/images`
@@ -22,11 +22,11 @@ Todas las rutas de búsqueda usan `GET` y el prefijo `service.api_prefix` (por d
 - `/v1/books`
 - `/v1/extract`
 
-Los endpoints de búsqueda aceptan `q` (o `query`), `region`, `safesearch`, `timelimit`, `max_results`, `page` y `backend`. Imágenes acepta además `size`, `color`, `type_image`, `layout` y `license_image`; vídeos acepta `resolution`, `duration` y `license_videos`. `extract` recibe `url` y `format`.
+Search endpoints accept `q` (or `query`), `region`, `safesearch`, `timelimit`, `max_results`, `page`, and `backend`. Images additionally accepts `size`, `color`, `type_image`, `layout`, and `license_image`; videos accepts `resolution`, `duration`, and `license_videos`. `extract` accepts `url` and `format`.
 
-Los resultados de búsqueda se devuelven sin estrechar los tipos de `goddgs`: se conservan números, mapas anidados y valores nulos. La documentación se sirve en `/docs/` y la especificación OpenAPI en `/openapi.json`.
+Search results are returned without narrowing `goddgs` types: numbers, nested maps, and null values are preserved. Documentation is served at `/docs/`, and the OpenAPI specification at `/openapi.json`.
 
-Si `auth.token` no está vacío, todas las rutas requieren:
+If `auth.token` is not empty, every route requires:
 
 ```text
 Authorization: Bearer <token>
@@ -34,11 +34,11 @@ Authorization: Bearer <token>
 
 ## Proxies
 
-Cada proxy crea un cliente `goddgs` persistente; por tanto, proxy e identidad de navegador se mantienen coherentes durante la vida del proceso. El selector usa round-robin entre entradas sanas. Una caída de transporte marca la entrada no sana y puede reintentar otra; los rate limits no fuerzan rotación.
+Each proxy creates a persistent `goddgs` client, so the proxy and browser identity remain consistent throughout the process lifetime. The selector uses round-robin across healthy entries. A transport failure marks an entry unhealthy and may retry another entry; rate limits do not force rotation.
 
-Los proxies `direct` admiten `http://`, `https://`, `socks5://`, `socks5h://` y `tb`. Para túneles `ssh`, el proceso abre un listener SOCKS5H en loopback con puerto asignado por el sistema. Ese puerto no cambia al reconectar SSH, de modo que el cliente `goddgs` no se reconstruye.
+`direct` proxies support `http://`, `https://`, `socks5://`, `socks5h://`, and `tb`. For `ssh` tunnels, the process opens a loopback SOCKS5H listener on a system-assigned port. That port remains unchanged across SSH reconnects, so the `goddgs` client is not rebuilt.
 
-Ejemplo SSH:
+SSH example:
 
 ```yaml
 proxies:
@@ -51,9 +51,9 @@ proxies:
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... proxy.example.net"
 ```
 
-La `host_key` es obligatoria y se valida con `ssh.FixedHostKey`; no se usa `InsecureIgnoreHostKey`.
+`host_key` is mandatory and validated with `ssh.FixedHostKey`; `InsecureIgnoreHostKey` is never used.
 
-## Verificación
+## Verification
 
 ```sh
 go test ./...
