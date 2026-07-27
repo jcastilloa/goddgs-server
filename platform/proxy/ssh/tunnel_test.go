@@ -85,6 +85,15 @@ func TestConfigRejectsIncompleteTunnel(t *testing.T) {
 	}
 }
 
+func TestReconnectDelayBacksOffWithLimit(t *testing.T) {
+	if got := nextReconnectDelay(time.Second); got != 2*time.Second {
+		t.Errorf("nextReconnectDelay(1s) = %v, want 2s", got)
+	}
+	if got := nextReconnectDelay(maximumReconnectDelay); got != maximumReconnectDelay {
+		t.Errorf("nextReconnectDelay(max) = %v, want %v", got, maximumReconnectDelay)
+	}
+}
+
 type recordingRemote struct {
 	calls chan dialCall
 	peer  net.Conn

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -16,7 +17,9 @@ func authentication(token string) gin.HandlerFunc {
 
 	return func(context *gin.Context) {
 		provided, ok := strings.CutPrefix(context.GetHeader("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+		providedDigest := sha256.Sum256([]byte(provided))
+		tokenDigest := sha256.Sum256([]byte(token))
+		if !ok || subtle.ConstantTimeCompare(providedDigest[:], tokenDigest[:]) != 1 {
 			context.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}

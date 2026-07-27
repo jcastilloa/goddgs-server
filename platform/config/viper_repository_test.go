@@ -116,6 +116,15 @@ proxies:
 `,
 		},
 		{
+			name: "direct proxy with unsupported scheme",
+			contents: `
+proxies:
+  - name: direct
+    type: direct
+    url: ftp://proxy.example.com
+`,
+		},
+		{
 			name: "SSH proxy without verified host key",
 			contents: `
 proxies:

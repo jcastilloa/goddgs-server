@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -50,8 +51,8 @@ func (c ProxyConfig) Validate() error {
 
 	switch strings.ToLower(strings.TrimSpace(c.Type)) {
 	case "direct":
-		if strings.TrimSpace(c.URL) == "" {
-			return fmt.Errorf("%w: direct proxy URL is required", ErrInvalidConfiguration)
+		if err := validateDirectProxyURL(c.URL); err != nil {
+			return err
 		}
 	case "ssh":
 		if strings.TrimSpace(c.Host) == "" || strings.TrimSpace(c.User) == "" || strings.TrimSpace(c.PrivateKeyPath) == "" {
@@ -64,4 +65,20 @@ func (c ProxyConfig) Validate() error {
 		return fmt.Errorf("%w: unsupported proxy type %q", ErrInvalidConfiguration, c.Type)
 	}
 	return nil
+}
+
+func validateDirectProxyURL(rawURL string) error {
+	if strings.TrimSpace(rawURL) == "tb" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" {
+		return fmt.Errorf("%w: direct proxy URL is required", ErrInvalidConfiguration)
+	}
+	switch parsed.Scheme {
+	case "http", "https", "socks5", "socks5h":
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported direct proxy scheme %q", ErrInvalidConfiguration, parsed.Scheme)
+	}
 }

@@ -25,6 +25,7 @@ const (
 	socksReplySucceeded      = 0
 	socksReplyGeneralFailure = 1
 	defaultReconnectDelay    = time.Second
+	maximumReconnectDelay    = 30 * time.Second
 	defaultSSHDialTimeout    = 10 * time.Second
 )
 
@@ -108,27 +109,38 @@ func (t *Tunnel) accept(ctx context.Context) {
 }
 
 func (t *Tunnel) supervise(ctx context.Context) {
+	delay := t.config.reconnectDelay()
 	for ctx.Err() == nil {
 		client, err := t.connect(ctx)
 		if err != nil {
 			t.setHealth(false)
-			if !wait(ctx, t.config.reconnectDelay()) {
+			if !wait(ctx, delay) {
 				return
 			}
+			delay = nextReconnectDelay(delay)
 			continue
 		}
 
 		t.setRemote(client)
 		t.setHealth(true)
+		delay = t.config.reconnectDelay()
 		if !t.waitForDisconnect(ctx, client) {
 			return
 		}
 		t.setRemote(nil)
 		t.setHealth(false)
-		if !wait(ctx, t.config.reconnectDelay()) {
+		if !wait(ctx, delay) {
 			return
 		}
+		delay = nextReconnectDelay(delay)
 	}
+}
+
+func nextReconnectDelay(delay time.Duration) time.Duration {
+	if delay >= maximumReconnectDelay/2 {
+		return maximumReconnectDelay
+	}
+	return delay * 2
 }
 
 func (t *Tunnel) connect(ctx context.Context) (*sshLib.Client, error) {
