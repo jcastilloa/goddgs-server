@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/jcastilloa/goddgs-server/platform/config"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
@@ -12,15 +15,20 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfgRepo, err := config.New("goddgs-server")
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return
 	}
 
 	serverCfg := cfgRepo.ServerConfig()
 	gateway, err := goddgsPlatform.NewGatewayBuilder().Build(context.Background(), serverCfg)
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return
 	}
 	defer gateway.Close()
 
@@ -29,13 +37,15 @@ func main() {
 	containerBuilder := containerdi.New(serverCfg.Service.Version, searchService)
 	container, err := containerBuilder.Build()
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return
 	}
+	defer (*container).Delete()
 
-	httpServer := server.New(*container, serverCfg.Service.APIPrefix, serverCfg.AuthToken, serverCfg.RequestTimeout)
+	httpServer := server.New(*container, serverCfg.Service.APIPrefix, serverCfg.Service.Version, serverCfg.AuthToken, serverCfg.RequestTimeout)
 	log.Printf("http server listening on %s%s", serverCfg.Service.HTTPAddress(), serverCfg.Service.NormalizedAPIPrefix())
 
-	if err := httpServer.Run(serverCfg.Service.HTTPAddress()); err != nil {
-		log.Fatal(err)
+	if err := httpServer.Run(ctx, serverCfg.Service.HTTPAddress()); err != nil {
+		log.Print(err)
 	}
 }

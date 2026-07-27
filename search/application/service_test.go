@@ -82,6 +82,29 @@ func TestServiceExtractValidatesURLAndForwardsRequestedFormat(t *testing.T) {
 	}
 }
 
+func TestServiceExtractHonorsCanceledContextAndUnavailableGateway(t *testing.T) {
+	request := domain.ExtractRequest{URL: "https://example.com"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewService(&recordingGateway{}).Extract(ctx, request)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Extract() error = %v, want context.Canceled", err)
+	}
+
+	_, err = NewService(nil).Extract(context.Background(), request)
+	if !errors.Is(err, ErrGatewayUnavailable) {
+		t.Errorf("Extract() error = %v, want ErrGatewayUnavailable", err)
+	}
+}
+
+func TestServiceSearchRejectsUnavailableGateway(t *testing.T) {
+	_, err := NewService(nil).Search(context.Background(), domain.SearchRequest{Category: domain.CategoryText, Query: "metasearch"})
+	if !errors.Is(err, ErrGatewayUnavailable) {
+		t.Errorf("Search() error = %v, want ErrGatewayUnavailable", err)
+	}
+}
+
 type recordingGateway struct {
 	results       []domain.RawResult
 	searchError   error

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -71,13 +70,24 @@ func TestServerAppliesRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestServerRunStopsWhenContextIsCanceled(t *testing.T) {
+	httpServer, closeContainer := newServer(t, "", time.Second, &serverGateway{})
+	defer closeContainer()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := httpServer.Run(ctx, "127.0.0.1:0"); err != nil {
+		t.Errorf("Run() error = %v, want nil", err)
+	}
+}
+
 func newServer(t *testing.T, token string, timeout time.Duration, gateway *serverGateway) (*Server, func()) {
 	t.Helper()
 	container, err := containerdi.New("test", searchApplication.NewService(gateway)).Build()
 	if err != nil {
 		t.Fatalf("build container: %v", err)
 	}
-	return New(*container, "/v1", token, timeout), func() { _ = (*container).Delete() }
+	return New(*container, "/v1", "test", token, timeout), func() { _ = (*container).Delete() }
 }
 
 type serverGateway struct {
@@ -97,13 +107,4 @@ func (g *serverGateway) Search(ctx context.Context, request domain.SearchRequest
 
 func (g *serverGateway) Extract(_ context.Context, _ domain.ExtractRequest) (domain.ExtractResult, error) {
 	return g.extractResult, nil
-}
-
-func decodeJSON(t *testing.T, source []byte) any {
-	t.Helper()
-	var value any
-	if err := json.Unmarshal(source, &value); err != nil {
-		t.Fatalf("decode JSON: %v", err)
-	}
-	return value
 }

@@ -10,6 +10,8 @@ import (
 var (
 	ErrInvalidSearchRequest  = errors.New("invalid search request")
 	ErrInvalidExtractRequest = errors.New("invalid extract request")
+	ErrRateLimited           = errors.New("search rate limited")
+	ErrSearchTimeout         = errors.New("search timed out")
 )
 
 type Category string

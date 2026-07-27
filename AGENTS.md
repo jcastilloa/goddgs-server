@@ -7,6 +7,9 @@ Go API template with layered architecture, versioned routes, and handlers groupe
 Before making changes in this repository, load and apply these local skills:
 
 - `.codex/skills/clean-code`
+- `.codex/skills/go-clean-ddd-hexagonal`
+- `.codex/skills/go-refactoring`
+- `.codex/skills/go-code-simplification`
 - `.codex/skills/golang-pro`
 - `.codex/skills/sql-pro`
 - `.codex/skills/tdd-workflows-tdd-cycle`
@@ -30,8 +33,14 @@ goddgs-server/
 │   ├── server/
 │   ├── routes/
 │   ├── handlers/
-│   │   ├── hello/
-│   │   └── system/
+│   │   └── search/
+│   └── proxy/
+│       └── ssh/
+├── search/
+│   ├── application/
+│   └── domain/
+├── proxy/
+│   └── application/
 └── shared/
     └── config/domain/
 ```
@@ -59,11 +68,11 @@ Included examples:
 ## Layer Dependencies
 
 ```text
-platform -> shared
-cmd -> platform + shared
+platform -> search + proxy + shared
+cmd -> platform + search + proxy + shared
 ```
 
-Do not allow `shared -> platform` imports.
+Do not allow `shared`, `search/domain`, `search/application`, or `proxy/application` to import `platform`.
 
 ## Service and Repository Size Rule
 

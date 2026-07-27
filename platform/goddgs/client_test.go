@@ -72,6 +72,27 @@ func TestDDGSClientClassifiesNetworkErrorsAsTransport(t *testing.T) {
 	}
 }
 
+func TestDDGSClientClassifiesSourceRateLimitAndTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  error
+		wantErr error
+	}{
+		{name: "rate limit", source: ddgs.ErrRateLimit, wantErr: domain.ErrRateLimited},
+		{name: "timeout", source: ddgs.ErrTimeout, wantErr: domain.ErrSearchTimeout},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := ddgsClient{source: &recordingSource{searchError: testCase.source}}
+			_, err := client.Search(context.Background(), domain.SearchRequest{Category: domain.CategoryText, Query: "forest"})
+			if !errors.Is(err, testCase.wantErr) {
+				t.Errorf("Search() error = %v, want %v", err, testCase.wantErr)
+			}
+		})
+	}
+}
+
 func TestDDGSClientExtractForwardsFormat(t *testing.T) {
 	source := &recordingSource{extractResult: ddgs.ExtractResult{URL: "https://example.com", Content: []byte("raw")}}
 	client := ddgsClient{source: source}
@@ -85,6 +106,39 @@ func TestDDGSClientExtractForwardsFormat(t *testing.T) {
 	}
 	if source.method != "extract" || source.optionCount != 1 {
 		t.Errorf("source extract = (%q, %d options), want (extract, 1)", source.method, source.optionCount)
+	}
+}
+
+func TestDDGSClientDispatchesVideoOptionsAndRejectsUnknownCategory(t *testing.T) {
+	source := &recordingSource{}
+	client := ddgsClient{source: source}
+	_, err := client.Search(context.Background(), domain.SearchRequest{
+		Category: domain.CategoryVideos,
+		Query:    "forest",
+		Videos:   domain.VideoOptions{Resolution: "high", Duration: "short", License: "youtube"},
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if source.method != "videos" || source.optionCount != 3 {
+		t.Errorf("video call = (%q, %d options), want (videos, 3)", source.method, source.optionCount)
+	}
+
+	_, err = client.Search(context.Background(), domain.SearchRequest{Category: "unknown", Query: "forest"})
+	if !errors.Is(err, domain.ErrInvalidSearchRequest) {
+		t.Errorf("Search() error = %v, want ErrInvalidSearchRequest", err)
+	}
+}
+
+func TestDDGSClientExtractUsesDefaultFormatWhenOmitted(t *testing.T) {
+	source := &recordingSource{extractResult: ddgs.ExtractResult{URL: "https://example.com"}}
+	client := ddgsClient{source: source}
+	_, err := client.Extract(context.Background(), domain.ExtractRequest{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if source.optionCount != 0 {
+		t.Errorf("extract option count = %d, want 0", source.optionCount)
 	}
 }
 

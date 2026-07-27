@@ -81,6 +81,21 @@ func TestGatewayExtractRetriesTransportFailure(t *testing.T) {
 	}
 }
 
+func TestGatewayNormalizesNegativeRetriesAndPropagatesCanceledContext(t *testing.T) {
+	client := &fakeClient{results: []domain.RawResult{{"title": "result"}}}
+	gateway := newGateway(t, -1, proxyApplication.Entry[Client]{Key: "direct", Value: client})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := gateway.Search(ctx, domain.SearchRequest{Category: domain.CategoryText, Query: "metasearch"})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Search() error = %v, want context.Canceled", err)
+	}
+	if client.searchCalls != 0 {
+		t.Errorf("client calls = %d, want 0", client.searchCalls)
+	}
+}
+
 type fakeClient struct {
 	results       []domain.RawResult
 	searchError   error

@@ -74,6 +74,8 @@ func TestGetHandlerMapsContextTimeoutAndUnexpectedError(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "timeout", err: context.DeadlineExceeded, wantStatus: http.StatusGatewayTimeout},
+		{name: "source timeout", err: domain.ErrSearchTimeout, wantStatus: http.StatusGatewayTimeout},
+		{name: "rate limit", err: domain.ErrRateLimited, wantStatus: http.StatusTooManyRequests},
 		{name: "failure", err: errors.New("source unavailable"), wantStatus: http.StatusBadGateway},
 	}
 

@@ -32,7 +32,7 @@ func NewClient(proxy string, timeout time.Duration) Client {
 func (c ddgsClient) Search(ctx context.Context, request domain.SearchRequest) ([]domain.RawResult, error) {
 	results, err := c.search(ctx, request)
 	if err != nil {
-		return nil, classifyTransportError(err)
+		return nil, classifySourceError(err)
 	}
 	return convertResults(results), nil
 }
@@ -41,7 +41,7 @@ func (c ddgsClient) Extract(ctx context.Context, request domain.ExtractRequest) 
 	options := extractOptions(request)
 	result, err := c.source.Extract(ctx, request.URL, options...)
 	if err != nil {
-		return domain.ExtractResult{}, classifyTransportError(err)
+		return domain.ExtractResult{}, classifySourceError(err)
 	}
 	return domain.ExtractResult{URL: result.URL, Content: result.Content}, nil
 }
@@ -140,7 +140,13 @@ func convertResults(results []ddgs.RawResult) []domain.RawResult {
 	return converted
 }
 
-func classifyTransportError(err error) error {
+func classifySourceError(err error) error {
+	if errors.Is(err, ddgs.ErrRateLimit) {
+		return errors.Join(domain.ErrRateLimited, err)
+	}
+	if errors.Is(err, ddgs.ErrTimeout) {
+		return errors.Join(domain.ErrSearchTimeout, err)
+	}
 	if !isTransportError(err) {
 		return err
 	}

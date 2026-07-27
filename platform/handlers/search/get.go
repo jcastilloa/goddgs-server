@@ -100,7 +100,11 @@ func writeSearchError(ginContext *gin.Context, err error) {
 		ginContext.JSON(http.StatusGatewayTimeout, gin.H{"error": "request timed out"})
 	case errors.Is(err, context.Canceled):
 		ginContext.JSON(499, gin.H{"error": "request canceled"})
-	case errors.Is(err, domain.ErrInvalidSearchRequest):
+	case errors.Is(err, domain.ErrSearchTimeout):
+		ginContext.JSON(http.StatusGatewayTimeout, gin.H{"error": "search timed out"})
+	case errors.Is(err, domain.ErrRateLimited):
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{"error": "search rate limited"})
+	case errors.Is(err, domain.ErrInvalidSearchRequest), errors.Is(err, domain.ErrInvalidExtractRequest):
 		ginContext.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "search failed"})

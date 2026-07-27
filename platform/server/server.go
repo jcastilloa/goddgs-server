@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,7 +18,7 @@ type Server struct {
 	container di.Container
 }
 
-func New(container di.Container, apiPrefix, authToken string, requestTimeout time.Duration) *Server {
+func New(container di.Container, apiPrefix, version, authToken string, requestTimeout time.Duration) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger())
 	engine.Use(authentication(authToken))
@@ -24,7 +26,7 @@ func New(container di.Container, apiPrefix, authToken string, requestTimeout tim
 
 	s := &Server{engine: engine, container: container}
 	s.registerRoutes(apiPrefix)
-	s.registerDocumentation(normalizePrefix(apiPrefix))
+	s.registerDocumentation(normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
 	return s
 }
 
@@ -41,8 +43,25 @@ func requestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	}
 }
 
-func (s *Server) Run(address string) error {
-	return s.engine.Run(address)
+func (s *Server) Run(ctx context.Context, address string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	server := &http.Server{Addr: address, Handler: s.engine}
+	shutdown := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = server.Shutdown(context.Background())
+		case <-shutdown:
+		}
+	}()
+	err := server.ListenAndServe()
+	close(shutdown)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func (s *Server) registerRoutes(apiPrefix string) {

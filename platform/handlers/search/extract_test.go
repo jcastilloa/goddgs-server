@@ -58,6 +58,21 @@ func TestExtractHandlerRejectsMissingOrUnsupportedURL(t *testing.T) {
 	}
 }
 
+func TestExtractHandlerMapsInvalidUseCaseRequestToBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewExtract(&recordingExtractUseCase{err: domain.ErrInvalidExtractRequest})
+	engine := gin.New()
+	engine.GET("/extract", handler.Handle)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/extract?url=https%3A%2F%2Fexample.com", nil)
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", recorder.Code)
+	}
+}
+
 type recordingExtractUseCase struct {
 	result   domain.ExtractResult
 	err      error

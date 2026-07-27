@@ -61,6 +61,9 @@ func Start(ctx context.Context, config Config, onHealth func(bool)) (*Tunnel, er
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
