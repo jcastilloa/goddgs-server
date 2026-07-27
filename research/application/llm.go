@@ -16,33 +16,43 @@ type CompletionModel interface {
 }
 
 type LLMPlanner struct {
-	model CompletionModel
-	now   func() time.Time
+	model   CompletionModel
+	retries int
+	now     func() time.Time
 }
 
-func NewLLMPlanner(model CompletionModel, now ...func() time.Time) LLMPlanner {
+func NewLLMPlanner(model CompletionModel, retries int, now ...func() time.Time) LLMPlanner {
 	currentTime := time.Now
 	if len(now) > 0 && now[0] != nil {
 		currentTime = now[0]
 	}
-	return LLMPlanner{model: model, now: currentTime}
+	if retries < 0 {
+		retries = 0
+	}
+	return LLMPlanner{model: model, retries: retries, now: currentTime}
 }
 
 func (p LLMPlanner) Plan(ctx context.Context, request domain.NormalizedRequest) ([]domain.GeneratedQuery, error) {
 	if p.model == nil {
 		return nil, domain.ErrUnavailable
 	}
-	response, err := p.model.Complete(ctx, plannerSystemPrompt, plannerUserPrompt(request, p.now()))
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for attempt := 0; attempt <= p.retries; attempt++ {
+		response, err := p.model.Complete(ctx, plannerSystemPrompt, plannerUserPrompt(request, p.now()))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var result struct {
+			Queries []domain.GeneratedQuery `json:"queries"`
+		}
+		if err := decodeJSON(response, &result); err != nil {
+			lastErr = fmt.Errorf("%w: decode generated queries: %v", domain.ErrInvalidResponse, err)
+			continue
+		}
+		return result.Queries, nil
 	}
-	var result struct {
-		Queries []domain.GeneratedQuery `json:"queries"`
-	}
-	if err := decodeJSON(response, &result); err != nil {
-		return nil, fmt.Errorf("%w: decode generated queries: %v", domain.ErrInvalidResponse, err)
-	}
-	return result.Queries, nil
+	return nil, lastErr
 }
 
 type LLMReporter struct {

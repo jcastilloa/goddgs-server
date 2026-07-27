@@ -64,7 +64,7 @@ func main() {
 			researchService = researchApplication.NewUnavailableService(reportError)
 		} else {
 			researchService = researchApplication.NewService(
-				researchApplication.NewLLMPlanner(queryModel),
+				researchApplication.NewLLMPlanner(queryModel, serverCfg.Research.QueryAI.Retries),
 				searchService,
 				extractAIService,
 				researchApplication.NewLLMReporter(reportModel),
