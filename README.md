@@ -278,7 +278,7 @@ Authorization: Bearer <token>
 
 ## Proxies
 
-`proxies` is required and must contain at least one uniquely named entry. Each entry creates one persistent `goddgs` client, so its outbound route and browser identity remain consistent for the lifetime of the process. The server selects healthy entries round-robin. A transport failure marks that entry unhealthy and can retry another entry; rate limits do not force rotation.
+`proxies` is required and must contain at least one uniquely named entry. Each entry creates one persistent `goddgs` client, so its outbound route and browser identity remain consistent for the lifetime of the process. The server selects healthy entries round-robin. A transport failure can retry another entry for that request, but does not permanently disable a direct proxy; rate limits do not force rotation. SSH tunnel health is managed by its reconnect supervisor.
 
 ### Choose a configuration
 
@@ -379,7 +379,7 @@ proxies:
     host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... proxy.example.net"
 ```
 
-The server tries the next healthy entry after a transport failure, up to `service.max_proxy_retries`. When no healthy entry is available for a request, the API returns `503` with `no healthy upstream connection available`. Failed requests are logged with the HTTP method, path, status, and underlying cause.
+The server tries the next healthy entry after a transport failure, up to `service.max_proxy_retries`. A direct entry remains eligible for future requests after a transient transport failure. SSH entries become ineligible only while their reconnect supervisor reports them unavailable. When no healthy entry is available for a request, the API returns `503` with `no healthy upstream connection available`. Failed requests are logged with the HTTP method, path, status, and underlying cause.
 
 ## Verification
 

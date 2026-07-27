@@ -57,7 +57,6 @@ func (g *Gateway) Search(ctx context.Context, request domain.SearchRequest) ([]d
 			return results, err
 		}
 
-		g.clients.MarkUnhealthy(lease.Key)
 		lastErr = err
 	}
 	return nil, lastErr
@@ -79,7 +78,6 @@ func (g *Gateway) Extract(ctx context.Context, request domain.ExtractRequest) (d
 			return result, err
 		}
 
-		g.clients.MarkUnhealthy(lease.Key)
 		lastErr = err
 	}
 	return domain.ExtractResult{}, lastErr

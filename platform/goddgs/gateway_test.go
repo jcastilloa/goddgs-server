@@ -63,6 +63,26 @@ func TestGatewayReturnsTransportErrorWhenAllCandidatesFail(t *testing.T) {
 	}
 }
 
+func TestGatewayKeepsDirectClientAvailableAfterTransientTransportFailure(t *testing.T) {
+	client := &fakeClient{searchError: ErrTransport}
+	gateway := newGateway(t, 0, proxyApplication.Entry[Client]{Key: "direct", Value: client})
+	request := domain.SearchRequest{Category: domain.CategoryText, Query: "metasearch"}
+
+	if _, err := gateway.Search(context.Background(), request); !errors.Is(err, ErrTransport) {
+		t.Fatalf("first Search() error = %v, want ErrTransport", err)
+	}
+
+	client.searchError = nil
+	client.results = []domain.RawResult{{"title": "recovered"}}
+	results, err := gateway.Search(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Search() after transient failure error = %v", err)
+	}
+	if len(results) != 1 || results[0]["title"] != "recovered" {
+		t.Errorf("Search() after transient failure = %#v, want recovered result", results)
+	}
+}
+
 func TestGatewayExtractRetriesTransportFailure(t *testing.T) {
 	failed := &fakeClient{extractError: ErrTransport}
 	want := domain.ExtractResult{URL: "https://example.com", Content: []byte("source")}
