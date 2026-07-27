@@ -68,7 +68,6 @@ func (s *Server) Run(ctx context.Context, address string) error {
 func (s *Server) registerRoutes(apiPrefix string) {
 	v1 := s.engine.Group(normalizePrefix(apiPrefix))
 
-	routes.AddHelloRoutes(v1, s.container)
 	routes.AddSystemRoutes(v1, s.container)
 	routes.AddSearchRoutes(v1, s.container)
 }

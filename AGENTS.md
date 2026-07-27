@@ -65,7 +65,6 @@ Swagger documentation must explain parameters, defaults, available values, mode-
 
 Included examples:
 
-- `GET /v1/hello`
 - `GET /v1/version`
 
 ## Adding a New Handler

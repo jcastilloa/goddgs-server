@@ -32,6 +32,9 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil {
 		t.Errorf("paths = %#v, want /v1/text and /v1/extract", specification["paths"])
 	}
+	if paths["/v1/hello"] != nil {
+		t.Errorf("paths = %#v, must not expose removed /v1/hello endpoint", paths)
+	}
 	extractPath := paths["/v1/extract"].(map[string]any)
 	extractGet := extractPath["get"].(map[string]any)
 	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format") {
@@ -71,7 +74,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 
 func assertDetailedDocumentation(t *testing.T, paths map[string]any) {
 	t.Helper()
-	for _, path := range []string{"/v1/hello", "/v1/version", "/v1/text", "/v1/images", "/v1/news", "/v1/videos", "/v1/books"} {
+	for _, path := range []string{"/v1/version", "/v1/text", "/v1/images", "/v1/news", "/v1/videos", "/v1/books"} {
 		operation := documentedGetOperation(t, paths, path)
 		if operation["summary"] == "" || operation["description"] == "" {
 			t.Errorf("%s operation = %#v, want summary and description", path, operation)

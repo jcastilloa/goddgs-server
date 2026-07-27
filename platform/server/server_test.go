@@ -36,6 +36,17 @@ func TestServerRegistersEveryVersionedSearchRoute(t *testing.T) {
 	}
 }
 
+func TestServerDoesNotRegisterRemovedHelloRoute(t *testing.T) {
+	httpServer, closeContainer := newServer(t, "", time.Second, &serverGateway{})
+	defer closeContainer()
+
+	recorder := httptest.NewRecorder()
+	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/hello", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("GET /v1/hello status = %d, want 404", recorder.Code)
+	}
+}
+
 func TestServerAppliesAuthenticationToSearchRoutes(t *testing.T) {
 	httpServer, closeContainer := newServer(t, "token", time.Second, &serverGateway{})
 	defer closeContainer()

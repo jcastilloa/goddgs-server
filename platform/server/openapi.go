@@ -38,12 +38,11 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 			"description": "HTTP API for goddgs metasearch and content extraction. Search results preserve the source fields and value types returned by the selected backends.",
 		},
 		"tags": []gin.H{
-			{"name": "System", "description": "Service availability and version endpoints."},
+			{"name": "System", "description": "Service version endpoint."},
 			{"name": "Search", "description": "goddgs metasearch endpoints."},
 			{"name": "Extraction", "description": "Page-content extraction endpoints."},
 		},
 		"paths": gin.H{
-			apiPrefix + "/hello":   helloPath(),
 			apiPrefix + "/version": versionPath(),
 			apiPrefix + "/text":    searchPath("Search text results.", "Search web pages and return raw source-shaped result objects.", commonSearchParameters()),
 			apiPrefix + "/images":  searchPath("Search image results.", "Search images. The common search parameters and image filters are passed to the selected goddgs backends.", append(commonSearchParameters(), imageParameters()...)),
@@ -159,18 +158,6 @@ func jsonContent(schema gin.H, examples gin.H) gin.H {
 	return gin.H{"application/json": gin.H{"schema": schema, "examples": examples}}
 }
 
-func helloPath() gin.H {
-	return gin.H{"get": gin.H{
-		"summary":     "Check API availability.",
-		"description": "Returns a small static greeting for a lightweight connectivity check.",
-		"tags":        []string{"System"},
-		"responses": gin.H{
-			"200": jsonResponse("API greeting.", greetingSchema(), "greeting", gin.H{"message": "hello world"}),
-			"401": errorResponse("Authentication is required when enabled.", "authentication_required", "authentication required"),
-		},
-	}}
-}
-
 func versionPath() gin.H {
 	return gin.H{"get": gin.H{
 		"summary":     "Get the API version.",
@@ -261,10 +248,6 @@ func jsonResponse(description string, schema gin.H, name string, value any) gin.
 
 func rawResultsSchema() gin.H {
 	return gin.H{"type": "array", "items": gin.H{"type": "object", "additionalProperties": true}}
-}
-
-func greetingSchema() gin.H {
-	return gin.H{"type": "object", "required": []string{"message"}, "properties": gin.H{"message": gin.H{"type": "string", "description": "Static greeting."}}}
 }
 
 func versionSchema() gin.H {

@@ -3,7 +3,6 @@ package di
 import (
 	"fmt"
 
-	helloHandler "github.com/jcastilloa/goddgs-server/platform/handlers/hello"
 	searchHandler "github.com/jcastilloa/goddgs-server/platform/handlers/search"
 	systemHandler "github.com/jcastilloa/goddgs-server/platform/handlers/system"
 	searchApplication "github.com/jcastilloa/goddgs-server/search/application"
@@ -73,13 +72,6 @@ func (c *Container) Build() (*di.Container, error) {
 			Scope: di.App,
 			Build: func(di.Container) (interface{}, error) {
 				return searchHandler.NewExtract(c.searchService, c.extractAI), nil
-			},
-		},
-		di.Def{
-			Name:  helloHandler.GetHelloHandlerLabel,
-			Scope: di.App,
-			Build: func(ctn di.Container) (interface{}, error) {
-				return helloHandler.NewGet(), nil
 			},
 		},
 		di.Def{
