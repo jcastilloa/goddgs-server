@@ -36,7 +36,7 @@ Authorization: Bearer <token>
 
 Each proxy creates a persistent `goddgs` client, so the proxy and browser identity remain consistent throughout the process lifetime. The selector uses round-robin across healthy entries. A transport failure marks an entry unhealthy and may retry another entry; rate limits do not force rotation.
 
-`direct` proxies support `http://`, `https://`, `socks5://`, `socks5h://`, and `tb`. For `ssh` tunnels, the process opens a loopback SOCKS5H listener on a system-assigned port. That port remains unchanged across SSH reconnects, so the `goddgs` client is not rebuilt.
+`direct` entries without a `url` use the host's direct connection unless `DDGS_PROXY` is set. Entries with a `url` support `http://`, `https://`, `socks5://`, `socks5h://`, and `tb`. For `ssh` tunnels, the process opens a loopback SOCKS5H listener on a system-assigned port. That port remains unchanged across SSH reconnects, so the `goddgs` client is not rebuilt.
 
 SSH example:
 

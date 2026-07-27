@@ -10,6 +10,5 @@ auth:
   token: ""
 
 proxies:
-  - name: local-socks
+  - name: direct
     type: direct
-    url: socks5h://127.0.0.1:9050

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ type Server struct {
 
 func New(container di.Container, apiPrefix, version, authToken string, requestTimeout time.Duration) *Server {
 	engine := gin.New()
-	engine.Use(gin.Recovery(), gin.Logger())
+	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
 	engine.Use(authentication(authToken))
 	engine.Use(requestTimeoutMiddleware(requestTimeout))
 

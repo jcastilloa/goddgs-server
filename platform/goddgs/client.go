@@ -26,7 +26,17 @@ type sourceClient interface {
 }
 
 func NewClient(proxy string, timeout time.Duration) Client {
-	return ddgsClient{source: ddgs.New(ddgs.WithProxy(proxy), ddgs.WithTimeout(timeout))}
+	return newClient(proxy, timeout, func(options ...ddgs.Option) sourceClient {
+		return ddgs.New(options...)
+	})
+}
+
+func newClient(proxy string, timeout time.Duration, create func(...ddgs.Option) sourceClient) Client {
+	options := []ddgs.Option{ddgs.WithTimeout(timeout)}
+	if proxy != "" {
+		options = append(options, ddgs.WithProxy(proxy))
+	}
+	return ddgsClient{source: create(options...)}
 }
 
 func (c ddgsClient) Search(ctx context.Context, request domain.SearchRequest) ([]domain.RawResult, error) {

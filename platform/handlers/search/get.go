@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
+	proxyApplication "github.com/jcastilloa/goddgs-server/proxy/application"
 	"github.com/jcastilloa/goddgs-server/search/domain"
 )
 
@@ -95,6 +97,7 @@ func optionalPositiveInt(value string) (*int, error) {
 }
 
 func writeSearchError(ginContext *gin.Context, err error) {
+	ginContext.Error(err)
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		ginContext.JSON(http.StatusGatewayTimeout, gin.H{"error": "request timed out"})
@@ -106,6 +109,12 @@ func writeSearchError(ginContext *gin.Context, err error) {
 		ginContext.JSON(http.StatusTooManyRequests, gin.H{"error": "search rate limited"})
 	case errors.Is(err, domain.ErrInvalidSearchRequest), errors.Is(err, domain.ErrInvalidExtractRequest):
 		ginContext.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, syscall.ECONNREFUSED):
+		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection refused"})
+	case errors.Is(err, syscall.ECONNRESET):
+		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection reset"})
+	case errors.Is(err, proxyApplication.ErrNoHealthyProxy):
+		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"error": "no healthy upstream connection available"})
 	default:
 		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "search failed"})
 	}

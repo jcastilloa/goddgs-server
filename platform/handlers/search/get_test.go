@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	proxyApplication "github.com/jcastilloa/goddgs-server/proxy/application"
 	"github.com/jcastilloa/goddgs-server/search/domain"
 )
 
@@ -91,6 +93,51 @@ func TestGetHandlerMapsContextTimeoutAndUnexpectedError(t *testing.T) {
 				t.Errorf("status = %d, want %d", recorder.Code, testCase.wantStatus)
 			}
 		})
+	}
+}
+
+func TestGetHandlerDescribesRefusedUpstreamConnectionAndRecordsCause(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	useCase := &recordingSearchUseCase{err: syscall.ECONNREFUSED}
+	handler := NewGet(domain.CategoryText, useCase)
+	engine := gin.New()
+	var recorded error
+	engine.Use(func(context *gin.Context) {
+		context.Next()
+		if len(context.Errors) > 0 {
+			recorded = context.Errors.Last().Err
+		}
+	})
+	engine.GET("/text", handler.Handle)
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/text?q=metasearch", nil))
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", recorder.Code)
+	}
+	if body := recorder.Body.String(); body != "{\"error\":\"upstream connection refused\"}" {
+		t.Errorf("body = %s, want descriptive error", body)
+	}
+	if !errors.Is(recorded, syscall.ECONNREFUSED) {
+		t.Errorf("recorded error = %v, want ECONNREFUSED", recorded)
+	}
+}
+
+func TestGetHandlerDescribesUnavailableUpstreamPool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewGet(domain.CategoryText, &recordingSearchUseCase{err: proxyApplication.ErrNoHealthyProxy})
+	engine := gin.New()
+	engine.GET("/text", handler.Handle)
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/text?q=metasearch", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", recorder.Code)
+	}
+	if body := recorder.Body.String(); body != "{\"error\":\"no healthy upstream connection available\"}" {
+		t.Errorf("body = %s, want descriptive error", body)
 	}
 }
 

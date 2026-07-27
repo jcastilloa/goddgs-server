@@ -51,6 +51,9 @@ func (c ProxyConfig) Validate() error {
 
 	switch strings.ToLower(strings.TrimSpace(c.Type)) {
 	case "direct":
+		if strings.TrimSpace(c.URL) == "" {
+			return nil
+		}
 		if err := validateDirectProxyURL(c.URL); err != nil {
 			return err
 		}

@@ -6,10 +6,14 @@ config.yaml
 bin/
 coverage.out
 *.test
+/goddgs-server
+/build.sh
+/goddgs-server.log
+/goddgs-server.pid
 
 # Local editor/tooling state.
 .opencode/node_modules/
 .opencode/package-lock.json
 .opencode/package.json
 .opencode/bun.lock
-~
+/~/

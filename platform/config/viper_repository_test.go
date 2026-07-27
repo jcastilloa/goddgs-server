@@ -70,6 +70,22 @@ proxies:
 	}
 }
 
+func TestNewFromFileAllowsDirectConnectionWithoutProxyURL(t *testing.T) {
+	repository, err := NewFromFile(writeConfig(t, `
+proxies:
+  - name: local
+    type: direct
+`))
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+
+	proxies := repository.ServerConfig().Proxies
+	if len(proxies) != 1 || proxies[0].URL != "" {
+		t.Errorf("Proxies = %#v, want one direct connection without proxy URL", proxies)
+	}
+}
+
 func TestNewFromFileRejectsMissingOrInvalidConfiguration(t *testing.T) {
 	tests := []struct {
 		name string
@@ -105,14 +121,6 @@ func TestNewFromFileRejectsInvalidProxyConfiguration(t *testing.T) {
 			contents: `
 service:
   request_timeout: 10s
-`,
-		},
-		{
-			name: "direct proxy without URL",
-			contents: `
-proxies:
-  - name: direct
-    type: direct
 `,
 		},
 		{

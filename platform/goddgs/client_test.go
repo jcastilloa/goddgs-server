@@ -7,10 +7,26 @@ import (
 	"reflect"
 	"syscall"
 	"testing"
+	"time"
 
 	ddgs "github.com/jcastilloa/goddgs"
 	"github.com/jcastilloa/goddgs-server/search/domain"
 )
+
+func TestNewClientUsesNoProxyOptionForDirectConnection(t *testing.T) {
+	optionCount := 0
+	client := newClient("", time.Second, func(options ...ddgs.Option) sourceClient {
+		optionCount = len(options)
+		return &recordingSource{}
+	})
+
+	if optionCount != 1 {
+		t.Errorf("option count = %d, want timeout only", optionCount)
+	}
+	if client == nil {
+		t.Error("NewClient() returned nil")
+	}
+}
 
 func TestDDGSClientDispatchesSearchCategoryAndPreservesValues(t *testing.T) {
 	source := &recordingSource{results: []ddgs.RawResult{{"number": 29_059, "nested": map[string]any{"value": nil}}}}
