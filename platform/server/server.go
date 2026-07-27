@@ -24,6 +24,7 @@ func New(container di.Container, apiPrefix, authToken string, requestTimeout tim
 
 	s := &Server{engine: engine, container: container}
 	s.registerRoutes(apiPrefix)
+	s.registerDocumentation(normalizePrefix(apiPrefix))
 	return s
 }
 
