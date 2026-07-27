@@ -22,7 +22,7 @@ All search routes use `GET` and the `service.api_prefix` prefix (default: `/v1`)
 - `/v1/books`
 - `/v1/extract`
 
-Search endpoints accept `q` (or `query`), `region`, `safesearch`, `timelimit`, `max_results`, `page`, and `backend`. Images additionally accepts `size`, `color`, `type_image`, `layout`, and `license_image`; videos accepts `resolution`, `duration`, and `license_videos`. `extract` accepts `url` and `format`.
+Text, image, news, and video search endpoints require either `q` or `query` (`q` wins when both are sent). Their defaults are `region=us-en`, `safesearch=moderate`, `max_results=10`, `page=1`, and `backend=auto`; `timelimit` is optional. Images additionally accept `size`, `color`, `type_image`, `layout`, and `license_image`; videos accept `resolution`, `duration`, and `license_videos`. Books support only the query, `max_results`, `page`, and `backend` parameters. `extract` accepts `url`, `format`, and `mode`.
 
 Search results are returned without narrowing `goddgs` types: numbers, nested maps, and null values are preserved. Documentation is served at `/docs/`, and the OpenAPI specification at `/openapi.json`.
 
@@ -71,6 +71,38 @@ jq -r '.Content'
 ```
 
 Use `text_plain` for clean, readable text. `text_markdown` is the default, `text_rich` retains richer structure, and `text` returns the source response text. Paywalls, JavaScript-only pages, or publisher blocking can prevent a complete extraction.
+
+### AI extraction mode
+
+`/v1/extract` defaults to `mode=heuristic`, which preserves the existing `goddgs` extraction behavior. Set `mode=ai` to fetch the source HTML through `goddgs`, ask a configured OpenAI-compatible LLM for the page's primary editorial content, and return a sanitized HTML fragment. In AI mode, `format` is ignored because the response is always clean HTML. The server removes scripts, event handlers, embedded content, forms, presentation attributes, and unsafe URLs from the model output. It retains only `href` on links and `src`/`alt` on images, without resolving or rewriting URLs. If no editorial content is found, `Content` is an empty string.
+
+```sh
+curl -sG 'http://localhost:8080/v1/extract' \
+  --data-urlencode 'url=https://example.com/article' \
+  --data-urlencode 'mode=ai' |
+jq -r '.Content'
+```
+
+AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required.
+
+```yaml
+llm:
+  # Any OpenAI-compatible API base URL. It must expose POST /chat/completions.
+  base_url: https://your-llm-provider.example.com/v1
+  api_key: ""
+  # Optional provider-specific headers, for example HTTP-Referer or X-Title.
+  headers: {}
+
+extract_ai:
+  model: gpt-4.1-mini
+  timeout: 45s
+  temperature: 0.1
+  retries: 2
+```
+
+Set `llm.api_key` or the equivalent `LLM_API_KEY` environment variable to enable the mode. `llm.base_url`, `extract_ai.model`, `extract_ai.timeout`, `extract_ai.temperature`, and `extract_ai.retries` are also required when AI mode is enabled.
+
+The AI instructions are deliberately narrow: source HTML is treated as untrusted data; the model must preserve the original language, return only the main editorial content in HTML, and exclude navigation, sidebars, ads, cookie notices, related links, subscriptions, and other chrome. The final sanitization policy is enforced by Go rather than delegated to the model.
 
 If `auth.token` is not empty, every route requires:
 

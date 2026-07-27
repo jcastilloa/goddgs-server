@@ -83,7 +83,7 @@ func TestServerRunStopsWhenContextIsCanceled(t *testing.T) {
 
 func newServer(t *testing.T, token string, timeout time.Duration, gateway *serverGateway) (*Server, func()) {
 	t.Helper()
-	container, err := containerdi.New("test", searchApplication.NewService(gateway)).Build()
+	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil).Build()
 	if err != nil {
 		t.Fatalf("build container: %v", err)
 	}

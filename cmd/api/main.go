@@ -9,9 +9,13 @@ import (
 
 	"github.com/jcastilloa/goddgs-server/platform/config"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
+	extractAIPlatform "github.com/jcastilloa/goddgs-server/platform/extractai"
 	goddgsPlatform "github.com/jcastilloa/goddgs-server/platform/goddgs"
+	searchHandler "github.com/jcastilloa/goddgs-server/platform/handlers/search"
+	openAIPlatform "github.com/jcastilloa/goddgs-server/platform/openai"
 	"github.com/jcastilloa/goddgs-server/platform/server"
 	searchApplication "github.com/jcastilloa/goddgs-server/search/application"
+	extractAIApplication "github.com/jcastilloa/goddgs-server/shared/extractai/application"
 )
 
 func main() {
@@ -33,8 +37,20 @@ func main() {
 	defer gateway.Close()
 
 	searchService := searchApplication.NewService(gateway.Gateway)
+	var extractAIService searchHandler.ExtractAIUseCase
+	if configurationError := serverCfg.AIExtractionConfigurationError(); configurationError != nil {
+		extractAIService = extractAIApplication.NewUnavailableService(configurationError)
+	} else {
+		model, err := openAIPlatform.NewCompatibleExtractClient(serverCfg.LLM, serverCfg.ExtractAI)
+		if err != nil {
+			extractAIService = extractAIApplication.NewUnavailableService(err)
+		} else {
+			service := extractAIApplication.NewService(extractAIPlatform.NewSource(gateway.Gateway), model)
+			extractAIService = service
+		}
+	}
 
-	containerBuilder := containerdi.New(serverCfg.Service.Version, searchService)
+	containerBuilder := containerdi.New(serverCfg.Service.Version, searchService, extractAIService)
 	container, err := containerBuilder.Build()
 	if err != nil {
 		log.Print(err)

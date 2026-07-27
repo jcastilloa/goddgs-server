@@ -22,6 +22,18 @@ service:
 auth:
   token: secret-token
 
+llm:
+  base_url: https://llm.example.com/v1
+  api_key: secret-llm-key
+  headers:
+    X-Client-Name: goddgs-server-test
+
+extract_ai:
+  model: gpt-4.1-mini
+  timeout: 45s
+  temperature: 0.15
+  retries: 2
+
 proxies:
   - name: direct-eu
     type: direct
@@ -58,6 +70,12 @@ proxies:
 	}
 	if got.AuthToken != "secret-token" {
 		t.Errorf("AuthToken = %q, want secret-token", got.AuthToken)
+	}
+	if got.LLM.BaseURL != "https://llm.example.com/v1" || got.LLM.APIKey != "secret-llm-key" || got.LLM.Headers["x-client-name"] != "goddgs-server-test" {
+		t.Errorf("LLM = %#v", got.LLM)
+	}
+	if got.ExtractAI.Model != "gpt-4.1-mini" || got.ExtractAI.Timeout.String() != "45s" || got.ExtractAI.Temperature != 0.15 || got.ExtractAI.Retries != 2 {
+		t.Errorf("ExtractAI = %#v", got.ExtractAI)
 	}
 	if len(got.Proxies) != 2 {
 		t.Fatalf("Proxies length = %d, want 2", len(got.Proxies))
@@ -158,6 +176,55 @@ proxies:
 			_, err := NewFromFile(writeConfig(t, testCase.contents))
 			if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
 				t.Errorf("NewFromFile() error = %v, want ErrInvalidConfiguration", err)
+			}
+		})
+	}
+}
+
+func TestNewFromFileRejectsInvalidConfiguredAIExtraction(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+	}{
+		{
+			name: "invalid LLM base URL",
+			contents: `
+llm:
+  api_key: key
+  base_url: ftp://llm.example.com
+extract_ai:
+  model: gpt-4.1-mini
+  timeout: 30s
+proxies:
+  - name: direct
+    type: direct
+`,
+		},
+		{
+			name: "invalid AI temperature",
+			contents: `
+llm:
+  api_key: key
+  base_url: https://llm.example.com/v1
+extract_ai:
+  model: gpt-4.1-mini
+  timeout: 30s
+  temperature: 3
+proxies:
+  - name: direct
+    type: direct
+`,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			repository, err := NewFromFile(writeConfig(t, testCase.contents))
+			if err != nil {
+				t.Fatalf("NewFromFile() error = %v", err)
+			}
+			if err := repository.ServerConfig().AIExtractionConfigurationError(); !errors.Is(err, configDomain.ErrInvalidConfiguration) {
+				t.Errorf("AIExtractionConfigurationError() = %v, want ErrInvalidConfiguration", err)
 			}
 		})
 	}

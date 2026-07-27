@@ -9,6 +9,17 @@ service:
 auth:
   token: ""
 
+llm:
+  base_url: ""
+  api_key: ""
+  headers: {}
+
+extract_ai:
+  model: gpt-4.1-mini
+  timeout: 45s
+  temperature: 0.1
+  retries: 2
+
 proxies:
   - name: direct
     type: direct

@@ -13,6 +13,8 @@ type ServerConfig struct {
 	RequestTimeout  time.Duration
 	MaxProxyRetries int
 	Proxies         []ProxyConfig
+	LLM             LLMConfig
+	ExtractAI       ExtractAIConfig
 }
 
 type ProxyConfig struct {
@@ -42,6 +44,13 @@ func (c ServerConfig) Validate() error {
 		names[proxy.Name] = struct{}{}
 	}
 	return nil
+}
+
+func (c ServerConfig) AIExtractionConfigurationError() error {
+	if err := c.LLM.ConfigurationError(); err != nil {
+		return err
+	}
+	return c.ExtractAI.Validate()
 }
 
 func (c ProxyConfig) Validate() error {

@@ -51,6 +51,17 @@ goddgs-server/
 - Routes are registered by category in `platform/routes/*.go`.
 - Handlers are grouped by category in `platform/handlers/<category>/`.
 - Default version prefix: `/v1`.
+- `platform/server/openapi.go` is the single source for the runtime `/openapi.json`; Swagger UI at `/docs/` renders that document.
+
+### API Documentation Contract
+
+Every API change (route, parameter, request/response shape, status code, authentication, default, validation, or behavior) must be propagated in the same change to:
+
+1. `platform/server/openapi.go`, so `/openapi.json` and Swagger UI document the actual contract.
+2. The endpoint's OpenAPI contract test in `platform/server/openapi_test.go`, including parameters, examples, and non-success responses when applicable.
+3. `README.md` when it changes user-facing behavior or configuration.
+
+Swagger documentation must explain parameters, defaults, available values, mode-specific behavior, configuration prerequisites, and meaningful error responses. Do not leave API behavior discoverable only from source code or tests.
 
 Included examples:
 
@@ -98,6 +109,7 @@ post/
 
 - [ ] New routes are under the versioned prefix.
 - [ ] New handlers are registered in DI.
+- [ ] API changes are reflected and tested in `/openapi.json` and Swagger UI (`/docs/`).
 - [ ] No `platform` imports inside `shared` or `domain`.
 - [ ] Configuration is read through `viper` (`config.yaml`/env).
 - [ ] `go test ./...` and `go vet ./...` pass.

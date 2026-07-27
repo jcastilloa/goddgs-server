@@ -56,7 +56,15 @@ type VideoOptions struct {
 type ExtractRequest struct {
 	URL    string
 	Format string
+	Mode   ExtractMode
 }
+
+type ExtractMode string
+
+const (
+	ExtractModeHeuristic ExtractMode = "heuristic"
+	ExtractModeAI        ExtractMode = "ai"
+)
 
 type ExtractResult struct {
 	URL     string
@@ -81,7 +89,26 @@ func (r ExtractRequest) Validate() error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("%w: unsupported URL scheme", ErrInvalidExtractRequest)
 	}
+	if !r.Mode.IsValid() {
+		return fmt.Errorf("%w: unsupported extract mode %q", ErrInvalidExtractRequest, r.Mode)
+	}
 	return nil
+}
+
+func (m ExtractMode) IsValid() bool {
+	switch ExtractMode(strings.ToLower(strings.TrimSpace(string(m)))) {
+	case "", ExtractModeHeuristic, ExtractModeAI:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m ExtractMode) Normalize() ExtractMode {
+	if ExtractMode(strings.ToLower(strings.TrimSpace(string(m)))) == ExtractModeAI {
+		return ExtractModeAI
+	}
+	return ExtractModeHeuristic
 }
 
 func (c Category) IsValid() bool {

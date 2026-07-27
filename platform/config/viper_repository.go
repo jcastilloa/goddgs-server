@@ -84,6 +84,17 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 		RequestTimeout:  requestTimeout,
 		MaxProxyRetries: r.v.GetInt("service.max_proxy_retries"),
 		Proxies:         r.proxyConfigs(),
+		LLM: configDomain.LLMConfig{
+			BaseURL: r.v.GetString("llm.base_url"),
+			APIKey:  r.v.GetString("llm.api_key"),
+			Headers: r.v.GetStringMapString("llm.headers"),
+		},
+		ExtractAI: configDomain.ExtractAIConfig{
+			Model:       r.v.GetString("extract_ai.model"),
+			Timeout:     r.v.GetDuration("extract_ai.timeout"),
+			Temperature: r.v.GetFloat64("extract_ai.temperature"),
+			Retries:     r.v.GetInt("extract_ai.retries"),
+		},
 	}
 }
 

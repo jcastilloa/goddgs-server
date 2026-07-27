@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	proxyApplication "github.com/jcastilloa/goddgs-server/proxy/application"
 	"github.com/jcastilloa/goddgs-server/search/domain"
+	extractAIDomain "github.com/jcastilloa/goddgs-server/shared/extractai/domain"
 )
 
 type SearchUseCase interface {
@@ -107,8 +108,14 @@ func writeSearchError(ginContext *gin.Context, err error) {
 		ginContext.JSON(http.StatusGatewayTimeout, gin.H{"error": "search timed out"})
 	case errors.Is(err, domain.ErrRateLimited):
 		ginContext.JSON(http.StatusTooManyRequests, gin.H{"error": "search rate limited"})
+	case errors.Is(err, extractAIDomain.ErrRateLimited):
+		ginContext.JSON(http.StatusTooManyRequests, gin.H{"error": "AI extraction rate limited"})
 	case errors.Is(err, domain.ErrInvalidSearchRequest), errors.Is(err, domain.ErrInvalidExtractRequest):
 		ginContext.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, extractAIDomain.ErrInvalidRequest):
+		ginContext.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, extractAIDomain.ErrUnavailable):
+		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 	case errors.Is(err, syscall.ECONNREFUSED):
 		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection refused"})
 	case errors.Is(err, syscall.ECONNRESET):

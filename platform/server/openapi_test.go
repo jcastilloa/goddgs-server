@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +32,26 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil {
 		t.Errorf("paths = %#v, want /v1/text and /v1/extract", specification["paths"])
 	}
+	extractPath := paths["/v1/extract"].(map[string]any)
+	extractGet := extractPath["get"].(map[string]any)
+	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format") {
+		t.Errorf("extract description = %q", description)
+	}
+	parameters := extractGet["parameters"].([]any)
+	if parameters[2].(map[string]any)["name"] != "mode" {
+		t.Errorf("extract parameters = %#v, want mode", parameters)
+	}
+	if parameters[0].(map[string]any)["description"] == "" || parameters[1].(map[string]any)["description"] == "" || parameters[2].(map[string]any)["description"] == "" {
+		t.Errorf("extract parameters need descriptions = %#v", parameters)
+	}
+	responses := extractGet["responses"].(map[string]any)
+	if responses["503"].(map[string]any)["description"] != "AI extraction is not configured or unavailable. Heuristic extraction remains available." {
+		t.Errorf("extract responses = %#v", responses)
+	}
+	if responses["200"].(map[string]any)["content"] == nil || responses["400"].(map[string]any)["content"] == nil || responses["503"].(map[string]any)["content"] == nil {
+		t.Errorf("extract responses need documented payloads = %#v", responses)
+	}
+	assertDetailedDocumentation(t, paths)
 
 	recorder = httptest.NewRecorder()
 	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/", nil))
@@ -46,6 +67,80 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Errorf("Swagger CSS status = %d, want 200", recorder.Code)
 	}
+}
+
+func assertDetailedDocumentation(t *testing.T, paths map[string]any) {
+	t.Helper()
+	for _, path := range []string{"/v1/hello", "/v1/version", "/v1/text", "/v1/images", "/v1/news", "/v1/videos", "/v1/books"} {
+		operation := documentedGetOperation(t, paths, path)
+		if operation["summary"] == "" || operation["description"] == "" {
+			t.Errorf("%s operation = %#v, want summary and description", path, operation)
+		}
+		responses := operation["responses"].(map[string]any)
+		if responses["200"].(map[string]any)["content"] == nil || responses["401"].(map[string]any)["content"] == nil {
+			t.Errorf("%s responses = %#v, want documented JSON responses", path, responses)
+		}
+	}
+
+	text := documentedGetOperation(t, paths, "/v1/text")
+	if !hasParameter(text, "q") || !hasParameter(text, "query") || !hasParameter(text, "safesearch") || !hasParameter(text, "backend") {
+		t.Errorf("text parameters = %#v, want documented common search parameters", text["parameters"])
+	}
+	if text["responses"].(map[string]any)["503"] == nil || text["responses"].(map[string]any)["504"] == nil {
+		t.Errorf("text responses = %#v, want documented upstream errors", text["responses"])
+	}
+
+	images := documentedGetOperation(t, paths, "/v1/images")
+	for _, parameter := range []string{"size", "color", "type_image", "layout", "license_image"} {
+		if !hasParameter(images, parameter) {
+			t.Errorf("images parameters = %#v, want %q", images["parameters"], parameter)
+		}
+	}
+
+	videos := documentedGetOperation(t, paths, "/v1/videos")
+	for _, parameter := range []string{"resolution", "duration", "license_videos"} {
+		if !hasParameter(videos, parameter) {
+			t.Errorf("videos parameters = %#v, want %q", videos["parameters"], parameter)
+		}
+	}
+
+	books := documentedGetOperation(t, paths, "/v1/books")
+	if hasParameter(books, "region") || hasParameter(books, "safesearch") || hasParameter(books, "timelimit") {
+		t.Errorf("books parameters = %#v, must only document supported book parameters", books["parameters"])
+	}
+}
+
+func documentedGetOperation(t *testing.T, paths map[string]any, path string) map[string]any {
+	t.Helper()
+	pathItem, ok := paths[path].(map[string]any)
+	if !ok {
+		t.Fatalf("path %s = %#v, want an operation", path, paths[path])
+	}
+	operation, ok := pathItem["get"].(map[string]any)
+	if !ok {
+		t.Fatalf("path %s = %#v, want GET operation", path, pathItem)
+	}
+	return operation
+}
+
+func hasParameter(operation map[string]any, name string) bool {
+	parameters, _ := operation["parameters"].([]any)
+	for _, parameter := range parameters {
+		definition, ok := parameter.(map[string]any)
+		if ok && definition["name"] == name && definition["description"] != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAll(value string, values ...string) bool {
+	for _, expected := range values {
+		if !strings.Contains(value, expected) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestServerProtectsDocumentationWhenAuthenticationIsEnabled(t *testing.T) {

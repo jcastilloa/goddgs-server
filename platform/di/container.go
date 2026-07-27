@@ -15,12 +15,14 @@ import (
 type Container struct {
 	serviceVersion string
 	searchService  searchApplication.Service
+	extractAI      searchHandler.ExtractAIUseCase
 }
 
-func New(serviceVersion string, searchService searchApplication.Service) *Container {
+func New(serviceVersion string, searchService searchApplication.Service, extractAI searchHandler.ExtractAIUseCase) *Container {
 	return &Container{
 		serviceVersion: serviceVersion,
 		searchService:  searchService,
+		extractAI:      extractAI,
 	}
 }
 
@@ -70,7 +72,7 @@ func (c *Container) Build() (*di.Container, error) {
 			Name:  searchHandler.GetExtractHandlerLabel,
 			Scope: di.App,
 			Build: func(di.Container) (interface{}, error) {
-				return searchHandler.NewExtract(c.searchService), nil
+				return searchHandler.NewExtract(c.searchService, c.extractAI), nil
 			},
 		},
 		di.Def{
