@@ -4,6 +4,7 @@ config.yaml
 
 # Build and test artifacts.
 bin/
+dist/
 coverage.out
 *.test
 /goddgs-server

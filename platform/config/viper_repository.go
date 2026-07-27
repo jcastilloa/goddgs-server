@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcastilloa/goddgs-server/shared/buildinfo"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
 
 	"github.com/spf13/viper"
@@ -61,7 +62,7 @@ func configureEnvironment(v *viper.Viper) {
 func (r *ViperRepository) ServiceConfig() configDomain.ServiceConfig {
 	version := r.v.GetString("service.version")
 	if version == "" {
-		version = "0.1.0"
+		version = buildinfo.CurrentVersion()
 	}
 
 	return configDomain.ServiceConfig{

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jcastilloa/goddgs-server/shared/buildinfo"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
 )
 
@@ -117,6 +118,25 @@ proxies:
 	proxies := repository.ServerConfig().Proxies
 	if len(proxies) != 1 || proxies[0].URL != "" {
 		t.Errorf("Proxies = %#v, want one direct connection without proxy URL", proxies)
+	}
+}
+
+func TestServerConfigUsesBuildVersionWhenConfigurationOmitsIt(t *testing.T) {
+	original := buildinfo.Version
+	buildinfo.Version = "v1.2.3"
+	t.Cleanup(func() { buildinfo.Version = original })
+
+	repository, err := NewFromFile(writeConfig(t, `
+proxies:
+  - name: local
+    type: direct
+`))
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+
+	if got := repository.ServerConfig().Service.Version; got != "v1.2.3" {
+		t.Errorf("Version = %q, want v1.2.3", got)
 	}
 }
 

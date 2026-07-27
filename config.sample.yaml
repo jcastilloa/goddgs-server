@@ -2,7 +2,6 @@ service:
   host: 0.0.0.0
   port: 8080
   api_prefix: /v1
-  version: 0.1.0
   request_timeout: 30s
   max_proxy_retries: 1
 

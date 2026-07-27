@@ -5,6 +5,8 @@ HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs). It keeps on
 ## Table of contents
 
 - [Run](#run)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
 - [API](#api)
   - [Search parameters](#search-parameters)
   - [Interactive API documentation](#interactive-api-documentation)
@@ -28,6 +30,63 @@ go run ./cmd/api
 ```
 
 Configuration is loaded from `./config.yaml` or `~/.config/goddgs-server/config.yaml`. Environment variables follow Viper's naming convention; for example, `SERVICE_PORT=8081`.
+
+### Requirements
+
+- Go **1.26.1+** to build from source.
+- A `config.yaml` with at least one proxy entry to run the server.
+
+### Installation
+
+#### Build from source
+
+```sh
+make build
+./bin/goddgs-server
+```
+
+To install the binary in `~/.local/bin`:
+
+```sh
+make install
+```
+
+`make release VERSION=vX.Y.Z` creates compressed artifacts and SHA-256 checksums in `./dist` for Linux (`amd64`, `arm64`), macOS (`amd64`, `arm64`), and Windows (`amd64`). Each archive includes the binary, this README, and `config.sample.yaml`.
+
+#### Prebuilt binary
+
+Linux and macOS:
+
+```sh
+# Latest release
+curl -fsSL https://raw.githubusercontent.com/jcastilloa/goddgs-server/master/scripts/install.sh | sh
+
+# Specific version
+curl -fsSL https://raw.githubusercontent.com/jcastilloa/goddgs-server/master/scripts/install.sh | VERSION=vX.Y.Z sh
+```
+
+Windows PowerShell:
+
+```powershell
+# Latest release
+iwr https://raw.githubusercontent.com/jcastilloa/goddgs-server/master/scripts/install.ps1 -UseBasicParsing | iex
+
+# Specific version
+$env:VERSION='vX.Y.Z'; iwr https://raw.githubusercontent.com/jcastilloa/goddgs-server/master/scripts/install.ps1 -UseBasicParsing | iex
+```
+
+The installers place the binary and `config.sample.yaml` in `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\goddgs-server\bin` (Windows). Copy that sample to `config.yaml` and configure its proxy before starting the server.
+
+Installer environment variables:
+
+| Variable | Default |
+| --- | --- |
+| `REPO` | `jcastilloa/goddgs-server` |
+| `SERVICE_NAME` | `goddgs-server` |
+| `INSTALL_DIR` | `~/.local/bin` (Linux/macOS) · `%LOCALAPPDATA%\goddgs-server\bin` (Windows) |
+| `VERSION` | Latest GitHub Release tag |
+
+GitHub publishes these artifacts automatically whenever a `v*` tag is pushed. The tag is embedded in the binary and used by `GET /v1/version` unless `service.version` overrides it in configuration.
 
 ## API
 
