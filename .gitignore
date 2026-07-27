@@ -1,0 +1,15 @@
+# Local configuration can contain API tokens and private-key paths.
+config.yaml
+.env
+
+# Build and test artifacts.
+bin/
+coverage.out
+*.test
+
+# Local editor/tooling state.
+.opencode/node_modules/
+.opencode/package-lock.json
+.opencode/package.json
+.opencode/bun.lock
+~
