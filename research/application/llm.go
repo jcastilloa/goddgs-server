@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/jcastilloa/goddgs-server/research/domain"
 )
@@ -16,17 +17,22 @@ type CompletionModel interface {
 
 type LLMPlanner struct {
 	model CompletionModel
+	now   func() time.Time
 }
 
-func NewLLMPlanner(model CompletionModel) LLMPlanner {
-	return LLMPlanner{model: model}
+func NewLLMPlanner(model CompletionModel, now ...func() time.Time) LLMPlanner {
+	currentTime := time.Now
+	if len(now) > 0 && now[0] != nil {
+		currentTime = now[0]
+	}
+	return LLMPlanner{model: model, now: currentTime}
 }
 
 func (p LLMPlanner) Plan(ctx context.Context, request domain.NormalizedRequest) ([]domain.GeneratedQuery, error) {
 	if p.model == nil {
 		return nil, domain.ErrUnavailable
 	}
-	response, err := p.model.Complete(ctx, plannerSystemPrompt, plannerUserPrompt(request))
+	response, err := p.model.Complete(ctx, plannerSystemPrompt, plannerUserPrompt(request, p.now()))
 	if err != nil {
 		return nil, err
 	}
@@ -41,17 +47,22 @@ func (p LLMPlanner) Plan(ctx context.Context, request domain.NormalizedRequest) 
 
 type LLMReporter struct {
 	model CompletionModel
+	now   func() time.Time
 }
 
-func NewLLMReporter(model CompletionModel) LLMReporter {
-	return LLMReporter{model: model}
+func NewLLMReporter(model CompletionModel, now ...func() time.Time) LLMReporter {
+	currentTime := time.Now
+	if len(now) > 0 && now[0] != nil {
+		currentTime = now[0]
+	}
+	return LLMReporter{model: model, now: currentTime}
 }
 
 func (r LLMReporter) Write(ctx context.Context, request ReportRequest) (Report, error) {
 	if r.model == nil {
 		return Report{}, domain.ErrUnavailable
 	}
-	response, err := r.model.Complete(ctx, reporterSystemPrompt, reporterUserPrompt(request))
+	response, err := r.model.Complete(ctx, reporterSystemPrompt, reporterUserPrompt(request, r.now()))
 	if err != nil {
 		return Report{}, err
 	}
