@@ -254,6 +254,8 @@ Research needs the existing `llm` and `extract_ai` settings plus a global resear
 research:
   # Independent from service.request_timeout; must cover the entire workflow.
   timeout: 10m
+  # Maximum source pages extracted through AI at the same time.
+  max_concurrent_extractions: 20
   query_ai:
     model: gpt-4.1-mini
     timeout: 30s
@@ -266,7 +268,7 @@ research:
     retries: 2
 ```
 
-The query and report models each use their own model, temperature, timeout, and retry policy. `extract_ai` continues to control the separate AI extraction call made for every discovered source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
+The query and report models each use their own model, temperature, timeout, and retry policy. `extract_ai` continues to control the separate AI extraction call made for every discovered source. `research.max_concurrent_extractions` limits how many source pages are extracted concurrently and must be positive. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
 
 ### Authentication
 

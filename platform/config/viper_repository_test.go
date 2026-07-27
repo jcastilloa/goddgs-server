@@ -37,6 +37,7 @@ extract_ai:
 
 research:
   timeout: 8m
+  max_concurrent_extractions: 20
   query_ai:
     model: gpt-4.1-mini
     timeout: 25s
@@ -91,7 +92,7 @@ proxies:
 	if got.ExtractAI.Model != "gpt-4.1-mini" || got.ExtractAI.Timeout.String() != "45s" || got.ExtractAI.Temperature != 0.15 || got.ExtractAI.Retries != 2 {
 		t.Errorf("ExtractAI = %#v", got.ExtractAI)
 	}
-	if got.Research.Timeout.String() != "8m0s" || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
+	if got.Research.Timeout.String() != "8m0s" || got.Research.MaxConcurrentExtractions != 20 || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
 		t.Errorf("Research = %#v", got.Research)
 	}
 	if len(got.Proxies) != 2 {

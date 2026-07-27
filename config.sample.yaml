@@ -21,6 +21,7 @@ extract_ai:
 
 research:
   timeout: 10m
+  max_concurrent_extractions: 20
   query_ai:
     model: gpt-4.1-mini
     timeout: 30s

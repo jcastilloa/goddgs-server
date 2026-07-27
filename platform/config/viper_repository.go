@@ -101,7 +101,8 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 			Retries:     r.v.GetInt("extract_ai.retries"),
 		},
 		Research: configDomain.ResearchConfig{
-			Timeout: researchTimeout,
+			Timeout:                  researchTimeout,
+			MaxConcurrentExtractions: r.v.GetInt("research.max_concurrent_extractions"),
 			QueryAI: configDomain.ResearchAIConfig{
 				Model:       r.v.GetString("research.query_ai.model"),
 				Timeout:     r.v.GetDuration("research.query_ai.timeout"),

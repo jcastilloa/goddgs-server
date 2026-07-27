@@ -39,6 +39,7 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 		searcher,
 		extractor,
 		reporter,
+		20,
 	)
 
 	got, err := service.Research(context.Background(), domain.Request{
@@ -100,7 +101,7 @@ func TestServiceSkipsFailedOrUnusableExtractions(t *testing.T) {
 		errors: map[string]error{"https://example.com/failed": errors.New("blocked")},
 	}
 	reporter := &recordingReporter{result: Report{HTML: "<p>Result</p>", SourceIDs: []string{"source-1"}}}
-	service := NewService(&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}}, searcher, extractor, reporter)
+	service := NewService(&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}}, searcher, extractor, reporter, 20)
 
 	got, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(4)})
 	if err != nil {
@@ -134,6 +135,7 @@ func TestServiceExtractsAtMostTheRequestedResultsForEachGeneratedQuery(t *testin
 		searcher,
 		extractor,
 		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}},
+		20,
 	)
 
 	_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(2), ResultsPerQuery: intPointer(1)})
@@ -146,6 +148,7 @@ func TestServiceExtractsAtMostTheRequestedResultsForEachGeneratedQuery(t *testin
 }
 
 func TestServiceLimitsConcurrentExtractionsAndPreservesSourceOrder(t *testing.T) {
+	const maxConcurrentExtractions = 20
 	const candidates = maxConcurrentExtractions + 2
 	results := make([]searchDomain.RawResult, candidates)
 	for index := range results {
@@ -158,6 +161,7 @@ func TestServiceLimitsConcurrentExtractionsAndPreservesSourceOrder(t *testing.T)
 		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": results}},
 		extractor,
 		reporter,
+		maxConcurrentExtractions,
 	)
 
 	done := make(chan error, 1)
@@ -181,7 +185,7 @@ func TestServiceLimitsConcurrentExtractionsAndPreservesSourceOrder(t *testing.T)
 	if err := <-done; err != nil {
 		t.Fatalf("Research() error = %v", err)
 	}
-	if sources := reporter.requests[0].Sources; len(sources) != candidates || sources[0].ID != "source-1" || sources[0].URL != "https://example.com/source-a" || sources[candidates-1].ID != "source-12" {
+	if sources := reporter.requests[0].Sources; len(sources) != candidates || sources[0].ID != "source-1" || sources[0].URL != "https://example.com/source-a" || sources[candidates-1].ID != "source-22" {
 		t.Errorf("report sources = %#v", sources)
 	}
 }
@@ -198,6 +202,7 @@ func TestServicePropagatesCancellationBeforeWritingTheReport(t *testing.T) {
 			onExtract: cancel,
 		},
 		reporter,
+		20,
 	)
 
 	_, err := service.Research(ctx, domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
@@ -243,7 +248,7 @@ func TestServiceRejectsInvalidModelOutputAndFailsWithoutUsableSources(t *testing
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			extractor := &recordingExtractor{results: map[string]extractAIDomain.Result{"https://example.com": {URL: "https://example.com", Content: "<p>Source</p>"}}}
-			service := NewService(testCase.planner, testCase.search, extractor, testCase.report)
+			service := NewService(testCase.planner, testCase.search, extractor, testCase.report, 20)
 			_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
 			if !errors.Is(err, testCase.wantErr) {
 				t.Errorf("Research() error = %v, want %v", err, testCase.wantErr)

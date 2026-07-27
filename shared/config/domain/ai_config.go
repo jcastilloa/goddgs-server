@@ -29,9 +29,10 @@ type ResearchAIConfig struct {
 }
 
 type ResearchConfig struct {
-	Timeout  time.Duration
-	QueryAI  ResearchAIConfig
-	ReportAI ResearchAIConfig
+	Timeout                  time.Duration
+	MaxConcurrentExtractions int
+	QueryAI                  ResearchAIConfig
+	ReportAI                 ResearchAIConfig
 }
 
 func (c LLMConfig) ConfigurationError() error {
@@ -71,6 +72,9 @@ func (c ResearchAIConfig) Validate() error {
 func (c ResearchConfig) Validate() error {
 	if c.Timeout <= 0 {
 		return fmt.Errorf("%w: research timeout must be positive", ErrInvalidConfiguration)
+	}
+	if c.MaxConcurrentExtractions <= 0 {
+		return fmt.Errorf("%w: research max concurrent extractions must be positive", ErrInvalidConfiguration)
 	}
 	if err := validateAIConfig("research query AI", c.QueryAI.Model, c.QueryAI.Timeout, c.QueryAI.Temperature, c.QueryAI.Retries); err != nil {
 		return err

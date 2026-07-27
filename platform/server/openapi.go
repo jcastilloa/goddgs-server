@@ -98,7 +98,7 @@ func researchDescription() string {
 - Failed, empty, invalid, or duplicate extractions are omitted silently. The report and ` + "`sources`" + ` contain only successfully extracted sources selected by the report model. All cited source IDs are verified by the server, and returned HTML is sanitized.
 - ` + "`diagnostics`" + ` reports actual completed goddgs backend attempts (including result and error counts) and elapsed milliseconds for query planning, searches, parallel source extraction, report generation, and the total operation. Backend counts cover generated-query searches only, not the source page downloads.
 
-Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.query_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
+Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.max_concurrent_extractions`" + `, ` + "`research.query_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
 }
 
 func researchRequestSchema() gin.H {

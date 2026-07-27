@@ -68,6 +68,7 @@ func main() {
 				searchService,
 				extractAIService,
 				researchApplication.NewLLMReporter(reportModel),
+				serverCfg.Research.MaxConcurrentExtractions,
 			)
 		}
 	}

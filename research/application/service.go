@@ -14,8 +14,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-const maxConcurrentExtractions = 10
-
 type Planner interface {
 	Plan(context.Context, domain.NormalizedRequest) ([]domain.GeneratedQuery, error)
 }
@@ -51,14 +49,15 @@ type Report struct {
 }
 
 type Service struct {
-	planner   Planner
-	searcher  Searcher
-	extractor Extractor
-	reporter  Reporter
+	planner                  Planner
+	searcher                 Searcher
+	extractor                Extractor
+	reporter                 Reporter
+	maxConcurrentExtractions int
 }
 
-func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter) Service {
-	return Service{planner: planner, searcher: searcher, extractor: extractor, reporter: reporter}
+func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter, maxConcurrentExtractions int) Service {
+	return Service{planner: planner, searcher: searcher, extractor: extractor, reporter: reporter, maxConcurrentExtractions: maxConcurrentExtractions}
 }
 
 func (s Service) Research(ctx context.Context, request domain.Request) (domain.Result, error) {
@@ -171,7 +170,7 @@ func (s Service) extractAll(ctx context.Context, candidates []candidateSource) [
 
 	jobs := make(chan int)
 	var waitGroup sync.WaitGroup
-	for range min(maxConcurrentExtractions, len(candidates)) {
+	for range min(s.maxConcurrentExtractions, len(candidates)) {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
