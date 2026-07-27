@@ -3,13 +3,13 @@ service:
   port: 8080
   api_prefix: /v1
   version: 0.1.0
+  request_timeout: 30s
+  max_proxy_retries: 1
 
-openai:
-  provider_name: openai
-  api_key: sk-xxxx
-  base_url: https://api.openai.com/v1
-  model: gpt-4o-mini
-  timeout: 30s
-  max_retries: 3
-  supports_system_role: true
-  supports_json_mode: true
+auth:
+  token: ""
+
+proxies:
+  - name: local-socks
+    type: direct
+    url: socks5h://127.0.0.1:9050

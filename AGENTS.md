@@ -32,9 +32,7 @@ goddgs-server/
 │   ├── handlers/
 │   │   ├── hello/
 │   │   └── system/
-│   └── openai/
 └── shared/
-    ├── ai/domain/
     └── config/domain/
 ```
 

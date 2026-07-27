@@ -5,7 +5,6 @@ import (
 
 	"github.com/jcastilloa/goddgs-server/platform/config"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
-	"github.com/jcastilloa/goddgs-server/platform/openai"
 	"github.com/jcastilloa/goddgs-server/platform/server"
 )
 
@@ -15,20 +14,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	serviceCfg := cfgRepo.ServiceConfig()
-	openaiCfg := cfgRepo.OpenAIProviderConfig()
-	openaiRepo := openai.NewOpenAIRepository(openaiCfg, nil)
+	serverCfg := cfgRepo.ServerConfig()
 
-	containerBuilder := containerdi.New(openaiRepo, serviceCfg.Version)
+	containerBuilder := containerdi.New(serverCfg.Service.Version)
 	container, err := containerBuilder.Build()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	httpServer := server.New(*container, serviceCfg.APIPrefix)
-	log.Printf("http server listening on %s%s", serviceCfg.HTTPAddress(), serviceCfg.NormalizedAPIPrefix())
+	httpServer := server.New(*container, serverCfg.Service.APIPrefix)
+	log.Printf("http server listening on %s%s", serverCfg.Service.HTTPAddress(), serverCfg.Service.NormalizedAPIPrefix())
 
-	if err := httpServer.Run(serviceCfg.HTTPAddress()); err != nil {
+	if err := httpServer.Run(serverCfg.Service.HTTPAddress()); err != nil {
 		log.Fatal(err)
 	}
 }

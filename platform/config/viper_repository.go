@@ -5,11 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	aiDomain "github.com/jcastilloa/goddgs-server/shared/ai/domain"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
 
-	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -18,42 +17,45 @@ type ViperRepository struct {
 }
 
 func New(serviceName string) (configDomain.Repository, error) {
-	_ = godotenv.Load()
-
 	v := viper.New()
-	v.SetConfigName("config")
-	v.SetConfigType("yaml")
-
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
 	v.AddConfigPath(filepath.Join(home, ".config", serviceName))
 	v.AddConfigPath(".")
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
+	configureEnvironment(v)
 	if err := v.ReadInConfig(); err != nil {
-		if !os.IsNotExist(err) && !strings.Contains(strings.ToLower(err.Error()), "not found") {
-			return nil, fmt.Errorf("read config: %w", err)
-		}
+		return nil, fmt.Errorf("%w: read config: %w", configDomain.ErrInvalidConfiguration, err)
 	}
 
-	return &ViperRepository{v: v}, nil
+	repository := &ViperRepository{v: v}
+	if err := repository.ServerConfig().Validate(); err != nil {
+		return nil, err
+	}
+	return repository, nil
 }
 
-func (r *ViperRepository) OpenAIProviderConfig() aiDomain.ProviderConfig {
-	return aiDomain.ProviderConfig{
-		APIKey:             r.v.GetString("openai.api_key"),
-		BaseURL:            r.v.GetString("openai.base_url"),
-		Model:              r.v.GetString("openai.model"),
-		ProviderName:       r.v.GetString("openai.provider_name"),
-		Timeout:            r.v.GetDuration("openai.timeout"),
-		MaxRetries:         r.v.GetInt("openai.max_retries"),
-		SupportsSystemRole: r.v.GetBool("openai.supports_system_role"),
-		SupportsJSONMode:   r.v.GetBool("openai.supports_json_mode"),
+func NewFromFile(path string) (*ViperRepository, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	configureEnvironment(v)
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("%w: read config: %w", configDomain.ErrInvalidConfiguration, err)
 	}
+	repository := &ViperRepository{v: v}
+	if err := repository.ServerConfig().Validate(); err != nil {
+		return nil, err
+	}
+	return repository, nil
+}
+
+func configureEnvironment(v *viper.Viper) {
+	v.AutomaticEnv()
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 }
 
 func (r *ViperRepository) ServiceConfig() configDomain.ServiceConfig {
@@ -68,4 +70,27 @@ func (r *ViperRepository) ServiceConfig() configDomain.ServiceConfig {
 		APIPrefix: r.v.GetString("service.api_prefix"),
 		Version:   version,
 	}
+}
+
+func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
+	requestTimeout := r.v.GetDuration("service.request_timeout")
+	if requestTimeout <= 0 {
+		requestTimeout = 30 * time.Second
+	}
+
+	return configDomain.ServerConfig{
+		Service:         r.ServiceConfig(),
+		AuthToken:       r.v.GetString("auth.token"),
+		RequestTimeout:  requestTimeout,
+		MaxProxyRetries: r.v.GetInt("service.max_proxy_retries"),
+		Proxies:         r.proxyConfigs(),
+	}
+}
+
+func (r *ViperRepository) proxyConfigs() []configDomain.ProxyConfig {
+	var proxies []configDomain.ProxyConfig
+	if err := r.v.UnmarshalKey("proxies", &proxies); err != nil {
+		return nil
+	}
+	return proxies
 }
