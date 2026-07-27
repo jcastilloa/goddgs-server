@@ -1,3 +1,5 @@
+![goddgs-server header](assets/header.png)
+
 # goddgs-server
 
 HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs). It keeps one stable `goddgs` client per proxy and applies per-request rotation.
