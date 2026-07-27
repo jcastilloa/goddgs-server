@@ -150,6 +150,34 @@ func TestExtractClientRetriesRetryableServerErrors(t *testing.T) {
 	}
 }
 
+func TestCompatibleResearchClientUsesItsOwnConfiguration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Model       string  `json:"model"`
+			Temperature float64 `json:"temperature"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.Model != "report-model" || body.Temperature != 0.7 {
+			t.Errorf("request = %#v", body)
+		}
+		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"report"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewCompatibleResearchClient(
+		configDomain.LLMConfig{BaseURL: server.URL, APIKey: "test-key"},
+		configDomain.ResearchAIConfig{Model: "report-model", Timeout: time.Second, Temperature: 0.7},
+	)
+	if err != nil {
+		t.Fatalf("NewCompatibleResearchClient() error = %v", err)
+	}
+	if _, err := client.Complete(context.Background(), "system", "source"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+}
+
 func newExtractClient(t *testing.T, baseURL string, retries int, wait retryWait) *ExtractClient {
 	t.Helper()
 	client, err := newClient(

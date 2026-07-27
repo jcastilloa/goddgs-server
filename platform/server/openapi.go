@@ -41,6 +41,7 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 			{"name": "System", "description": "Service version endpoint."},
 			{"name": "Search", "description": "goddgs metasearch endpoints."},
 			{"name": "Extraction", "description": "Page-content extraction endpoints."},
+			{"name": "Research", "description": "Multi-source evidence-based web research."},
 		},
 		"paths": gin.H{
 			apiPrefix + "/version": versionPath(),
@@ -60,6 +61,7 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 				},
 				"responses": extractResponses(),
 			}},
+			apiPrefix + "/research": researchPath(),
 		},
 		"components": gin.H{
 			"securitySchemes": gin.H{
@@ -71,6 +73,70 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 		specification["security"] = []gin.H{{"bearerAuth": []string{}}}
 	}
 	return specification
+}
+
+func researchPath() gin.H {
+	return gin.H{"post": gin.H{
+		"summary":     "Research a topic from web sources.",
+		"description": researchDescription(),
+		"tags":        []string{"Research"},
+		"requestBody": gin.H{
+			"required": true,
+			"content":  jsonContent(researchRequestSchema(), gin.H{"default": gin.H{"value": gin.H{"query": "When was E.T. released and what was its opening box office?", "report_language": "en", "query_languages": []string{"en", "es"}, "query_count": 10, "results_per_query": 10}}}),
+		},
+		"responses": researchResponses(),
+	}}
+}
+
+func researchDescription() string {
+	return `Generates web-search queries with the configured query LLM, searches with goddgs, extracts every unique search-result URL through ` + "`mode=ai`" + ` behavior, and creates a sanitized HTML report with the configured report LLM.
+
+- ` + "`query`" + ` is required. ` + "`report_language`" + ` is an ISO 639-1 code and defaults to ` + "`en`" + `.
+- ` + "`query_languages`" + ` controls query generation and defaults to ` + "`[\"en\"]`" + `. ` + "`query_count`" + ` is the total number of generated queries, distributed across those languages; it defaults to ` + "`10`" + `.
+- ` + "`results_per_query`" + ` defaults to ` + "`10`" + `. The service attempts every unique URL returned, up to ` + "`query_count × results_per_query`" + `; it does not have a separate source limit.
+- ` + "`region`" + ` applies to every search when present. Otherwise it is derived per query language: ` + "`en → us-en`" + ` and ` + "`es → es-es`" + `. An unsupported query language requires an explicit region.
+- Failed, empty, invalid, or duplicate extractions are omitted silently. The report and ` + "`sources`" + ` contain only successfully extracted sources selected by the report model. All cited source IDs are verified by the server, and returned HTML is sanitized.
+
+Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.query_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
+}
+
+func researchRequestSchema() gin.H {
+	return gin.H{
+		"type":     "object",
+		"required": []string{"query"},
+		"properties": gin.H{
+			"query":             gin.H{"type": "string", "minLength": 1, "description": "Generic research topic or question."},
+			"report_language":   gin.H{"type": "string", "pattern": "^[A-Za-z]{2}$", "default": "en", "description": "ISO 639-1 language of the final HTML report."},
+			"query_languages":   gin.H{"type": "array", "minItems": 1, "uniqueItems": true, "default": []string{"en"}, "items": gin.H{"type": "string", "pattern": "^[A-Za-z]{2}$"}, "description": "ISO 639-1 languages used to generate search queries."},
+			"query_count":       gin.H{"type": "integer", "minimum": 1, "default": 10, "description": "Total generated queries across query_languages."},
+			"results_per_query": gin.H{"type": "integer", "minimum": 1, "default": 10, "description": "Maximum results requested for each generated query."},
+			"region":            gin.H{"type": "string", "description": "Optional goddgs region override for all generated queries."},
+		},
+	}
+}
+
+func researchResponses() gin.H {
+	return gin.H{
+		"200": jsonResponse("Research completed. Individual inaccessible sources are omitted without being reported.", researchResultSchema(), "research", gin.H{"report_html": "<article><h1>E.T.</h1><p>E.T. premiered in 1982 and opened with …</p></article>", "sources": []gin.H{{"url": "https://example.com/et", "title": "E.T. release and box office"}}}),
+		"400": errorResponse("The JSON body or research parameters are invalid.", "invalid_request", "invalid research request: query is required"),
+		"401": errorResponse("Authentication is required when enabled.", "authentication_required", "unauthorized"),
+		"429": errorResponse("A configured LLM rate limited research.", "rate_limited", "research rate limited"),
+		"499": errorResponse("The client canceled the research request.", "request_canceled", "request canceled"),
+		"502": errorResponse("Query generation, the report, or all source extraction failed. Individual source failures are intentionally not exposed.", "upstream_failure", "research failed"),
+		"503": errorResponse("Research AI or AI extraction configuration is unavailable.", "research_not_configured", "research is unavailable: research query AI model is required"),
+		"504": errorResponse("The research operation timeout elapsed.", "timeout", "research timed out"),
+	}
+}
+
+func researchResultSchema() gin.H {
+	return gin.H{
+		"type":     "object",
+		"required": []string{"report_html", "sources"},
+		"properties": gin.H{
+			"report_html": gin.H{"type": "string", "description": "Sanitized HTML research report."},
+			"sources":     gin.H{"type": "array", "description": "Successfully extracted sources selected for the report.", "items": gin.H{"type": "object", "required": []string{"url", "title"}, "properties": gin.H{"url": gin.H{"type": "string", "format": "uri"}, "title": gin.H{"type": "string"}}}},
+		},
+	}
 }
 
 func modeParameter() gin.H {

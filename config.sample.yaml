@@ -20,6 +20,19 @@ extract_ai:
   temperature: 0.1
   retries: 2
 
+research:
+  timeout: 10m
+  query_ai:
+    model: gpt-4.1-mini
+    timeout: 30s
+    temperature: 0.1
+    retries: 2
+  report_ai:
+    model: gpt-4.1-mini
+    timeout: 60s
+    temperature: 0.1
+    retries: 2
+
 proxies:
   - name: direct
     type: direct

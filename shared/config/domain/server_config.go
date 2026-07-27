@@ -15,6 +15,7 @@ type ServerConfig struct {
 	Proxies         []ProxyConfig
 	LLM             LLMConfig
 	ExtractAI       ExtractAIConfig
+	Research        ResearchConfig
 }
 
 type ProxyConfig struct {
@@ -51,6 +52,13 @@ func (c ServerConfig) AIExtractionConfigurationError() error {
 		return err
 	}
 	return c.ExtractAI.Validate()
+}
+
+func (c ServerConfig) ResearchConfigurationError() error {
+	if err := c.AIExtractionConfigurationError(); err != nil {
+		return err
+	}
+	return c.Research.Validate()
 }
 
 func (c ProxyConfig) Validate() error {

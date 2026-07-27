@@ -19,11 +19,11 @@ type Server struct {
 	container di.Container
 }
 
-func New(container di.Container, apiPrefix, version, authToken string, requestTimeout time.Duration) *Server {
+func New(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
 	engine.Use(authentication(authToken))
-	engine.Use(requestTimeoutMiddleware(requestTimeout))
+	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research"))
 
 	s := &Server{engine: engine, container: container}
 	s.registerRoutes(apiPrefix)
@@ -31,13 +31,21 @@ func New(container di.Container, apiPrefix, version, authToken string, requestTi
 	return s
 }
 
-func requestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
-	if timeout <= 0 {
+func requestTimeoutMiddleware(timeout, researchTimeout time.Duration, researchPath string) gin.HandlerFunc {
+	if timeout <= 0 && researchTimeout <= 0 {
 		return func(*gin.Context) {}
 	}
 
 	return func(ginContext *gin.Context) {
-		requestContext, cancel := context.WithTimeout(ginContext.Request.Context(), timeout)
+		requestTimeout := timeout
+		if ginContext.Request.Method == http.MethodPost && ginContext.Request.URL.Path == researchPath && researchTimeout > 0 {
+			requestTimeout = researchTimeout
+		}
+		if requestTimeout <= 0 {
+			ginContext.Next()
+			return
+		}
+		requestContext, cancel := context.WithTimeout(ginContext.Request.Context(), requestTimeout)
 		defer cancel()
 		ginContext.Request = ginContext.Request.WithContext(requestContext)
 		ginContext.Next()
@@ -70,6 +78,7 @@ func (s *Server) registerRoutes(apiPrefix string) {
 
 	routes.AddSystemRoutes(v1, s.container)
 	routes.AddSearchRoutes(v1, s.container)
+	routes.AddResearchRoutes(v1, s.container)
 }
 
 func normalizePrefix(prefix string) string {

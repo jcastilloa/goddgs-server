@@ -52,6 +52,29 @@ func NewCompatibleExtractClient(llm configDomain.LLMConfig, extractAI configDoma
 	return newClient(llm, extractAI, &http.Client{Timeout: extractAI.Timeout}, waitForRetry)
 }
 
+func NewCompatibleResearchClient(llm configDomain.LLMConfig, researchAI configDomain.ResearchAIConfig) (*ExtractClient, error) {
+	if err := llm.Validate(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(llm.APIKey) == "" {
+		return nil, fmt.Errorf("%w: LLM API key is required", extractAIDomain.ErrUnavailable)
+	}
+	if err := researchAI.Validate(); err != nil {
+		return nil, err
+	}
+	return &ExtractClient{
+		baseURL:     strings.TrimRight(strings.TrimSpace(llm.BaseURL), "/"),
+		apiKey:      strings.TrimSpace(llm.APIKey),
+		headers:     cloneHeaders(llm.Headers),
+		model:       strings.TrimSpace(researchAI.Model),
+		temperature: researchAI.Temperature,
+		timeout:     researchAI.Timeout,
+		retries:     researchAI.Retries,
+		httpClient:  &http.Client{Timeout: researchAI.Timeout},
+		wait:        waitForRetry,
+	}, nil
+}
+
 func newClient(llm configDomain.LLMConfig, extractAI configDomain.ExtractAIConfig, httpClient *http.Client, wait retryWait) (*ExtractClient, error) {
 	if err := llm.Validate(); err != nil {
 		return nil, err

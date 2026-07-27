@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
 	searchApplication "github.com/jcastilloa/goddgs-server/search/application"
 	"github.com/jcastilloa/goddgs-server/search/domain"
@@ -33,6 +34,30 @@ func TestServerRegistersEveryVersionedSearchRoute(t *testing.T) {
 	}
 	if len(gateway.searches) != 5 {
 		t.Errorf("search calls = %d, want 5", len(gateway.searches))
+	}
+}
+
+func TestServerRegistersOnlyPostResearchRouteAndProtectsIt(t *testing.T) {
+	httpServer, closeContainer := newServer(t, "token", time.Second, &serverGateway{})
+	defer closeContainer()
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/v1/research", nil),
+		httptest.NewRequest(http.MethodPost, "/v1/research", nil),
+	} {
+		recorder := httptest.NewRecorder()
+		httpServer.engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("%s status = %d, want 401", request.Method, recorder.Code)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/research", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	httpServer.engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("GET research status = %d, want 404", recorder.Code)
 	}
 }
 
@@ -81,6 +106,38 @@ func TestServerAppliesRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestResearchUsesItsDedicatedTimeout(t *testing.T) {
+	engine := gin.New()
+	engine.Use(requestTimeoutMiddleware(time.Millisecond, 40*time.Millisecond, "/v1/research"))
+	engine.POST("/v1/research", func(context *gin.Context) {
+		select {
+		case <-time.After(10 * time.Millisecond):
+			context.Status(http.StatusOK)
+		case <-context.Request.Context().Done():
+			context.Status(http.StatusGatewayTimeout)
+		}
+	})
+	engine.GET("/v1/text", func(context *gin.Context) {
+		<-context.Request.Context().Done()
+		context.Status(http.StatusGatewayTimeout)
+	})
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/v1/research", nil),
+		httptest.NewRequest(http.MethodGet, "/v1/text", nil),
+	} {
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		want := http.StatusGatewayTimeout
+		if request.URL.Path == "/v1/research" {
+			want = http.StatusOK
+		}
+		if recorder.Code != want {
+			t.Errorf("%s %s status = %d, want %d", request.Method, request.URL.Path, recorder.Code, want)
+		}
+	}
+}
+
 func TestServerRunStopsWhenContextIsCanceled(t *testing.T) {
 	httpServer, closeContainer := newServer(t, "", time.Second, &serverGateway{})
 	defer closeContainer()
@@ -94,11 +151,11 @@ func TestServerRunStopsWhenContextIsCanceled(t *testing.T) {
 
 func newServer(t *testing.T, token string, timeout time.Duration, gateway *serverGateway) (*Server, func()) {
 	t.Helper()
-	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil).Build()
+	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil, nil).Build()
 	if err != nil {
 		t.Fatalf("build container: %v", err)
 	}
-	return New(*container, "/v1", "test", token, timeout), func() { _ = (*container).Delete() }
+	return New(*container, "/v1", "test", token, timeout, time.Second), func() { _ = (*container).Delete() }
 }
 
 type serverGateway struct {

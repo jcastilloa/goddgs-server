@@ -1,0 +1,92 @@
+package application
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/jcastilloa/goddgs-server/research/domain"
+)
+
+type CompletionModel interface {
+	Complete(context.Context, string, string) (string, error)
+}
+
+type LLMPlanner struct {
+	model CompletionModel
+}
+
+func NewLLMPlanner(model CompletionModel) LLMPlanner {
+	return LLMPlanner{model: model}
+}
+
+func (p LLMPlanner) Plan(ctx context.Context, request domain.NormalizedRequest) ([]domain.GeneratedQuery, error) {
+	if p.model == nil {
+		return nil, domain.ErrUnavailable
+	}
+	response, err := p.model.Complete(ctx, plannerSystemPrompt, plannerUserPrompt(request))
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Queries []domain.GeneratedQuery `json:"queries"`
+	}
+	if err := decodeJSON(response, &result); err != nil {
+		return nil, fmt.Errorf("%w: decode generated queries: %v", domain.ErrInvalidResponse, err)
+	}
+	return result.Queries, nil
+}
+
+type LLMReporter struct {
+	model CompletionModel
+}
+
+func NewLLMReporter(model CompletionModel) LLMReporter {
+	return LLMReporter{model: model}
+}
+
+func (r LLMReporter) Write(ctx context.Context, request ReportRequest) (Report, error) {
+	if r.model == nil {
+		return Report{}, domain.ErrUnavailable
+	}
+	response, err := r.model.Complete(ctx, reporterSystemPrompt, reporterUserPrompt(request))
+	if err != nil {
+		return Report{}, err
+	}
+	var report Report
+	if err := decodeJSON(response, &report); err != nil {
+		return Report{}, fmt.Errorf("%w: decode research report: %v", domain.ErrInvalidResponse, err)
+	}
+	return report, nil
+}
+
+func decodeJSON(input string, output any) error {
+	decoder := json.NewDecoder(strings.NewReader(stripCodeFence(input)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("unexpected JSON values")
+	}
+	return nil
+}
+
+func stripCodeFence(content string) string {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "```") {
+		return content
+	}
+	firstLineEnd := strings.IndexByte(content, '\n')
+	if firstLineEnd == -1 {
+		return content
+	}
+	content = content[firstLineEnd+1:]
+	if end := strings.LastIndex(content, "```"); end >= 0 {
+		content = content[:end]
+	}
+	return strings.TrimSpace(content)
+}

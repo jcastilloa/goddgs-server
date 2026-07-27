@@ -77,6 +77,10 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 	if requestTimeout <= 0 {
 		requestTimeout = 30 * time.Second
 	}
+	researchTimeout := r.v.GetDuration("research.timeout")
+	if researchTimeout <= 0 {
+		researchTimeout = 10 * time.Minute
+	}
 
 	return configDomain.ServerConfig{
 		Service:         r.ServiceConfig(),
@@ -94,6 +98,21 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 			Timeout:     r.v.GetDuration("extract_ai.timeout"),
 			Temperature: r.v.GetFloat64("extract_ai.temperature"),
 			Retries:     r.v.GetInt("extract_ai.retries"),
+		},
+		Research: configDomain.ResearchConfig{
+			Timeout: researchTimeout,
+			QueryAI: configDomain.ResearchAIConfig{
+				Model:       r.v.GetString("research.query_ai.model"),
+				Timeout:     r.v.GetDuration("research.query_ai.timeout"),
+				Temperature: r.v.GetFloat64("research.query_ai.temperature"),
+				Retries:     r.v.GetInt("research.query_ai.retries"),
+			},
+			ReportAI: configDomain.ResearchAIConfig{
+				Model:       r.v.GetString("research.report_ai.model"),
+				Timeout:     r.v.GetDuration("research.report_ai.timeout"),
+				Temperature: r.v.GetFloat64("research.report_ai.temperature"),
+				Retries:     r.v.GetInt("research.report_ai.retries"),
+			},
 		},
 	}
 }

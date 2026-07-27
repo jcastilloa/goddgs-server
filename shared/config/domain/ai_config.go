@@ -21,6 +21,19 @@ type ExtractAIConfig struct {
 	Retries     int
 }
 
+type ResearchAIConfig struct {
+	Model       string
+	Timeout     time.Duration
+	Temperature float64
+	Retries     int
+}
+
+type ResearchConfig struct {
+	Timeout  time.Duration
+	QueryAI  ResearchAIConfig
+	ReportAI ResearchAIConfig
+}
+
 func (c LLMConfig) ConfigurationError() error {
 	if strings.TrimSpace(c.APIKey) == "" {
 		return errors.New("llm.api_key is required")
@@ -48,17 +61,35 @@ func (c LLMConfig) Validate() error {
 }
 
 func (c ExtractAIConfig) Validate() error {
-	if strings.TrimSpace(c.Model) == "" {
-		return fmt.Errorf("%w: AI extraction model is required", ErrInvalidConfiguration)
-	}
+	return validateAIConfig("AI extraction", c.Model, c.Timeout, c.Temperature, c.Retries)
+}
+
+func (c ResearchAIConfig) Validate() error {
+	return validateAIConfig("research AI", c.Model, c.Timeout, c.Temperature, c.Retries)
+}
+
+func (c ResearchConfig) Validate() error {
 	if c.Timeout <= 0 {
-		return fmt.Errorf("%w: AI extraction timeout must be positive", ErrInvalidConfiguration)
+		return fmt.Errorf("%w: research timeout must be positive", ErrInvalidConfiguration)
 	}
-	if c.Temperature < 0 || c.Temperature > 2 {
-		return fmt.Errorf("%w: AI extraction temperature must be between 0 and 2", ErrInvalidConfiguration)
+	if err := validateAIConfig("research query AI", c.QueryAI.Model, c.QueryAI.Timeout, c.QueryAI.Temperature, c.QueryAI.Retries); err != nil {
+		return err
 	}
-	if c.Retries < 0 {
-		return fmt.Errorf("%w: AI extraction retries cannot be negative", ErrInvalidConfiguration)
+	return validateAIConfig("research report AI", c.ReportAI.Model, c.ReportAI.Timeout, c.ReportAI.Temperature, c.ReportAI.Retries)
+}
+
+func validateAIConfig(name, model string, timeout time.Duration, temperature float64, retries int) error {
+	if strings.TrimSpace(model) == "" {
+		return fmt.Errorf("%w: %s model is required", ErrInvalidConfiguration, name)
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("%w: %s timeout must be positive", ErrInvalidConfiguration, name)
+	}
+	if temperature < 0 || temperature > 2 {
+		return fmt.Errorf("%w: %s temperature must be between 0 and 2", ErrInvalidConfiguration, name)
+	}
+	if retries < 0 {
+		return fmt.Errorf("%w: %s retries cannot be negative", ErrInvalidConfiguration, name)
 	}
 	return nil
 }

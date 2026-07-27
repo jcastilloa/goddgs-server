@@ -47,7 +47,7 @@ func (s Service) Extract(ctx context.Context, request domain.Request) (domain.Re
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("extract primary content with AI: %w", err)
 	}
-	cleanHTML, err := sanitizeHTML(content)
+	cleanHTML, err := SanitizeHTML(content)
 	if err != nil {
 		return domain.Result{}, err
 	}

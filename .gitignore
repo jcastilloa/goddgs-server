@@ -17,3 +17,5 @@ coverage.out
 .opencode/package.json
 .opencode/bun.lock
 /~/
+
+.codegraph

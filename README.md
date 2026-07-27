@@ -13,7 +13,7 @@ Configuration is loaded from `./config.yaml` or `~/.config/goddgs-server/config.
 
 ## API
 
-All search routes use `GET` and the `service.api_prefix` prefix (default: `/v1`).
+The metasearch routes use `GET` and the `service.api_prefix` prefix (default: `/v1`). Research uses `POST`.
 
 - `/v1/text`
 - `/v1/images`
@@ -21,6 +21,7 @@ All search routes use `GET` and the `service.api_prefix` prefix (default: `/v1`)
 - `/v1/videos`
 - `/v1/books`
 - `/v1/extract`
+- `/v1/research` (`POST`)
 
 Text, image, news, and video search endpoints require either `q` or `query` (`q` wins when both are sent). Their defaults are `region=us-en`, `safesearch=moderate`, `max_results=10`, `page=1`, and `backend=auto`; `timelimit` is optional. Images additionally accept `size`, `color`, `type_image`, `layout`, and `license_image`; videos accept `resolution`, `duration`, and `license_videos`. Books support only the query, `max_results`, `page`, and `backend` parameters. `extract` accepts `url`, `format`, and `mode`.
 
@@ -103,6 +104,48 @@ extract_ai:
 Set `llm.api_key` or the equivalent `LLM_API_KEY` environment variable to enable the mode. `llm.base_url`, `extract_ai.model`, `extract_ai.timeout`, `extract_ai.temperature`, and `extract_ai.retries` are also required when AI mode is enabled.
 
 The AI instructions are deliberately narrow: source HTML is treated as untrusted data; the model must preserve the original language, return only the main editorial content in HTML, and exclude navigation, sidebars, ads, cookie notices, related links, subscriptions, and other chrome. The final sanitization policy is enforced by Go rather than delegated to the model.
+
+### Research
+
+`POST /v1/research` turns a generic topic into search queries, searches through goddgs, extracts the returned URLs with AI extraction, and produces a sanitized HTML report with the sources it actually used. The source list has the shape `[{"url":"…","title":"…"}]`; the report model selects source IDs supplied by the server, so it cannot add arbitrary URLs.
+
+```sh
+curl -sS -X POST 'http://localhost:8080/v1/research' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "When was E.T. released and what was its opening box office?",
+    "report_language": "en",
+    "query_languages": ["en", "es"],
+    "query_count": 10,
+    "results_per_query": 10
+  }' | jq .
+```
+
+`query` is required. `report_language` is an ISO 639-1 code and defaults to `en`. `query_languages` controls the languages in which the query LLM creates search terms; it defaults to `["en"]`. `query_count` is the total number of generated queries, divided across those languages, and defaults to `10`. `results_per_query` also defaults to `10`.
+
+Set `region` to use one goddgs region for every query. If omitted, it is derived separately from the language of each generated query: `en` uses `us-en` and `es` uses `es-es`. Other query languages require an explicit `region`.
+
+Research attempts every unique URL returned by the searches, up to `query_count × results_per_query`; there is no independent URL limit. Any page that fails extraction, returns empty content, or duplicates another final URL is ignored silently. It is neither included in the report nor listed as a source. If no usable source remains, the endpoint returns `502`.
+
+Research needs the existing `llm` and `extract_ai` settings plus a global research timeout and separate LLM settings for query planning and report writing:
+
+```yaml
+research:
+  # Independent from service.request_timeout; must cover the entire workflow.
+  timeout: 10m
+  query_ai:
+    model: gpt-4.1-mini
+    timeout: 30s
+    temperature: 0.1
+    retries: 2
+  report_ai:
+    model: gpt-4.1-mini
+    timeout: 60s
+    temperature: 0.1
+    retries: 2
+```
+
+The query and report models each use their own model, temperature, timeout, and retry policy. `extract_ai` continues to control the separate AI extraction call made for every discovered source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
 
 If `auth.token` is not empty, every route requires:
 

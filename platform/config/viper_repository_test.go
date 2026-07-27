@@ -34,6 +34,19 @@ extract_ai:
   temperature: 0.15
   retries: 2
 
+research:
+  timeout: 8m
+  query_ai:
+    model: gpt-4.1-mini
+    timeout: 25s
+    temperature: 0.2
+    retries: 1
+  report_ai:
+    model: gpt-4.1
+    timeout: 55s
+    temperature: 0.3
+    retries: 3
+
 proxies:
   - name: direct-eu
     type: direct
@@ -76,6 +89,9 @@ proxies:
 	}
 	if got.ExtractAI.Model != "gpt-4.1-mini" || got.ExtractAI.Timeout.String() != "45s" || got.ExtractAI.Temperature != 0.15 || got.ExtractAI.Retries != 2 {
 		t.Errorf("ExtractAI = %#v", got.ExtractAI)
+	}
+	if got.Research.Timeout.String() != "8m0s" || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
+		t.Errorf("Research = %#v", got.Research)
 	}
 	if len(got.Proxies) != 2 {
 		t.Fatalf("Proxies length = %d, want 2", len(got.Proxies))

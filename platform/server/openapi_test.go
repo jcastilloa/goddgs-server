@@ -29,8 +29,8 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 		t.Errorf("info = %#v, want configured version", specification["info"])
 	}
 	paths, ok := specification["paths"].(map[string]any)
-	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil {
-		t.Errorf("paths = %#v, want /v1/text and /v1/extract", specification["paths"])
+	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil || paths["/v1/research"] == nil {
+		t.Errorf("paths = %#v, want /v1/text, /v1/extract, and /v1/research", specification["paths"])
 	}
 	if paths["/v1/hello"] != nil {
 		t.Errorf("paths = %#v, must not expose removed /v1/hello endpoint", paths)
@@ -55,6 +55,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 		t.Errorf("extract responses need documented payloads = %#v", responses)
 	}
 	assertDetailedDocumentation(t, paths)
+	assertResearchDocumentation(t, paths)
 
 	recorder = httptest.NewRecorder()
 	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/", nil))
@@ -69,6 +70,43 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/swagger-ui.css", nil))
 	if recorder.Code != http.StatusOK {
 		t.Errorf("Swagger CSS status = %d, want 200", recorder.Code)
+	}
+}
+
+func assertResearchDocumentation(t *testing.T, paths map[string]any) {
+	t.Helper()
+	path, ok := paths["/v1/research"].(map[string]any)
+	if !ok {
+		t.Fatalf("research path = %#v", paths["/v1/research"])
+	}
+	operation, ok := path["post"].(map[string]any)
+	if !ok || operation["summary"] == "" || operation["description"] == "" {
+		t.Fatalf("research operation = %#v", path)
+	}
+	description := operation["description"].(string)
+	if !containsAll(description, "query_count × results_per_query", "en → us-en", "es → es-es", "omitted silently", "research.query_ai.*") {
+		t.Errorf("research description = %q", description)
+	}
+	requestBody := operation["requestBody"].(map[string]any)
+	if requestBody["required"] != true {
+		t.Errorf("request body = %#v, want required", requestBody)
+	}
+	content := requestBody["content"].(map[string]any)["application/json"].(map[string]any)
+	schema := content["schema"].(map[string]any)
+	properties := schema["properties"].(map[string]any)
+	for _, field := range []string{"query", "report_language", "query_languages", "query_count", "results_per_query", "region"} {
+		if properties[field] == nil {
+			t.Errorf("research properties = %#v, missing %s", properties, field)
+		}
+	}
+	if properties["report_language"].(map[string]any)["default"] != "en" || properties["query_count"].(map[string]any)["default"] != float64(10) || properties["results_per_query"].(map[string]any)["default"] != float64(10) {
+		t.Errorf("research defaults = %#v", properties)
+	}
+	responses := operation["responses"].(map[string]any)
+	for _, status := range []string{"200", "400", "401", "429", "499", "502", "503", "504"} {
+		if responses[status] == nil || responses[status].(map[string]any)["content"] == nil {
+			t.Errorf("research responses = %#v, missing documented %s", responses, status)
+		}
 	}
 }
 

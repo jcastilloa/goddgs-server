@@ -26,7 +26,7 @@ var removedTags = map[string]struct{}{
 	"base": {}, "link": {}, "meta": {}, "title": {}, "head": {},
 }
 
-func sanitizeHTML(content string) (string, error) {
+func SanitizeHTML(content string) (string, error) {
 	document, err := html.Parse(strings.NewReader(stripCodeFence(content)))
 	if err != nil {
 		return "", fmt.Errorf("parse AI HTML response: %w", err)

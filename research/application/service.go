@@ -1,0 +1,319 @@
+package application
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"strings"
+	"sync"
+
+	"github.com/jcastilloa/goddgs-server/research/domain"
+	searchDomain "github.com/jcastilloa/goddgs-server/search/domain"
+	extractAIDomain "github.com/jcastilloa/goddgs-server/shared/extractai/domain"
+	"golang.org/x/net/html"
+)
+
+const maxConcurrentExtractions = 10
+
+type Planner interface {
+	Plan(context.Context, domain.NormalizedRequest) ([]domain.GeneratedQuery, error)
+}
+
+type Searcher interface {
+	Search(context.Context, searchDomain.SearchRequest) ([]searchDomain.RawResult, error)
+}
+
+type Extractor interface {
+	Extract(context.Context, extractAIDomain.Request) (extractAIDomain.Result, error)
+}
+
+type Reporter interface {
+	Write(context.Context, ReportRequest) (Report, error)
+}
+
+type ReportSource struct {
+	ID      string
+	URL     string
+	Title   string
+	Content string
+}
+
+type ReportRequest struct {
+	Query    string
+	Language string
+	Sources  []ReportSource
+}
+
+type Report struct {
+	HTML      string   `json:"html"`
+	SourceIDs []string `json:"source_ids"`
+}
+
+type Service struct {
+	planner   Planner
+	searcher  Searcher
+	extractor Extractor
+	reporter  Reporter
+}
+
+func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter) Service {
+	return Service{planner: planner, searcher: searcher, extractor: extractor, reporter: reporter}
+}
+
+func (s Service) Research(ctx context.Context, request domain.Request) (domain.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Result{}, err
+	}
+	normalized, err := request.Normalize()
+	if err != nil {
+		return domain.Result{}, err
+	}
+	if s.planner == nil || s.searcher == nil || s.extractor == nil || s.reporter == nil {
+		return domain.Result{}, domain.ErrUnavailable
+	}
+
+	queries, err := s.planner.Plan(ctx, normalized)
+	if err != nil {
+		return domain.Result{}, fmt.Errorf("generate research queries: %w", err)
+	}
+	if err := validateQueries(normalized, queries); err != nil {
+		return domain.Result{}, err
+	}
+
+	sources := s.extractSources(ctx, normalized, queries)
+	if err := ctx.Err(); err != nil {
+		return domain.Result{}, err
+	}
+	if len(sources) == 0 {
+		return domain.Result{}, domain.ErrNoUsableSources
+	}
+	report, err := s.reporter.Write(ctx, ReportRequest{Query: normalized.Query, Language: normalized.ReportLanguage, Sources: sources})
+	if err != nil {
+		return domain.Result{}, fmt.Errorf("write research report: %w", err)
+	}
+	return buildResult(report, sources)
+}
+
+func validateQueries(request domain.NormalizedRequest, queries []domain.GeneratedQuery) error {
+	if len(queries) != request.QueryCount {
+		return fmt.Errorf("%w: expected %d generated queries", domain.ErrInvalidResponse, request.QueryCount)
+	}
+
+	counts := make(map[string]int, len(request.QueryLanguages))
+	allowed := make(map[string]struct{}, len(request.QueryLanguages))
+	for _, language := range request.QueryLanguages {
+		allowed[language] = struct{}{}
+	}
+	for _, query := range queries {
+		language := strings.ToLower(strings.TrimSpace(query.Language))
+		if _, exists := allowed[language]; !exists || strings.TrimSpace(query.Query) == "" {
+			return fmt.Errorf("%w: generated query has an unsupported language or is empty", domain.ErrInvalidResponse)
+		}
+		counts[language]++
+	}
+	for index, language := range request.QueryLanguages {
+		expected := request.QueryCount / len(request.QueryLanguages)
+		if index < request.QueryCount%len(request.QueryLanguages) {
+			expected++
+		}
+		if counts[language] != expected {
+			return fmt.Errorf("%w: expected %d generated queries in %q", domain.ErrInvalidResponse, expected, language)
+		}
+	}
+	return nil
+}
+
+func (s Service) extractSources(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery) []ReportSource {
+	urls := s.searchURLs(ctx, request, queries)
+	extracted := s.extractAll(ctx, urls)
+	sources := make([]ReportSource, 0, len(urls))
+	seenFinalURLs := make(map[string]struct{}, len(urls))
+	for _, source := range extracted {
+		if source == nil {
+			continue
+		}
+		if _, exists := seenFinalURLs[source.URL]; exists {
+			continue
+		}
+		seenFinalURLs[source.URL] = struct{}{}
+		source.ID = fmt.Sprintf("source-%d", len(sources)+1)
+		sources = append(sources, *source)
+	}
+	return sources
+}
+
+func (s Service) extractAll(ctx context.Context, candidates []candidateSource) []*ReportSource {
+	results := make([]*ReportSource, len(candidates))
+	if len(candidates) == 0 {
+		return results
+	}
+
+	jobs := make(chan int)
+	var waitGroup sync.WaitGroup
+	for range min(maxConcurrentExtractions, len(candidates)) {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case index, ok := <-jobs:
+					if !ok {
+						return
+					}
+					results[index] = s.extractSource(ctx, candidates[index])
+				}
+			}
+		}()
+	}
+
+	for index := range candidates {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			waitGroup.Wait()
+			return results
+		case jobs <- index:
+		}
+	}
+	close(jobs)
+	waitGroup.Wait()
+	return results
+}
+
+func (s Service) extractSource(ctx context.Context, candidate candidateSource) *ReportSource {
+	result, err := s.extractor.Extract(ctx, extractAIDomain.Request{URL: candidate.URL})
+	if err != nil || strings.TrimSpace(result.Content) == "" {
+		return nil
+	}
+	finalURL := result.URL
+	if finalURL == "" {
+		finalURL = candidate.URL
+	}
+	if !isHTTPURL(finalURL) {
+		return nil
+	}
+	content := sourceText(result.Content)
+	if content == "" {
+		return nil
+	}
+	return &ReportSource{URL: finalURL, Title: candidate.Title, Content: content}
+}
+
+func (s Service) searchURLs(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery) []candidateSource {
+	urls := make([]candidateSource, 0, request.QueryCount*request.ResultsPerQuery)
+	seenURLs := make(map[string]struct{}, cap(urls))
+	for _, query := range queries {
+		if ctx.Err() != nil {
+			return urls
+		}
+		region, err := request.RegionFor(query.Language)
+		if err != nil {
+			return urls
+		}
+		maxResults := request.ResultsPerQuery
+		results, err := s.searcher.Search(ctx, searchDomain.SearchRequest{Category: searchDomain.CategoryText, Query: query.Query, Region: region, MaxResults: &maxResults})
+		if err != nil {
+			continue
+		}
+		accepted := 0
+		for _, result := range results {
+			if accepted >= request.ResultsPerQuery {
+				break
+			}
+			candidate, ok := sourceFromResult(result)
+			if !ok {
+				continue
+			}
+			if _, exists := seenURLs[candidate.URL]; exists {
+				continue
+			}
+			seenURLs[candidate.URL] = struct{}{}
+			urls = append(urls, candidate)
+			accepted++
+		}
+	}
+	return urls
+}
+
+type candidateSource struct {
+	URL   string
+	Title string
+}
+
+func sourceFromResult(result searchDomain.RawResult) (candidateSource, bool) {
+	urlValue := stringValue(result["href"])
+	if urlValue == "" {
+		urlValue = stringValue(result["url"])
+	}
+	if !isHTTPURL(urlValue) {
+		return candidateSource{}, false
+	}
+	title := stringValue(result["title"])
+	if title == "" {
+		title = urlValue
+	}
+	return candidateSource{URL: urlValue, Title: title}, true
+}
+
+func buildResult(report Report, sources []ReportSource) (domain.Result, error) {
+	if strings.TrimSpace(report.HTML) == "" || len(report.SourceIDs) == 0 {
+		return domain.Result{}, fmt.Errorf("%w: report must contain HTML and source IDs", domain.ErrInvalidResponse)
+	}
+	cleanHTML, err := sanitizeReportHTML(report.HTML)
+	if err != nil {
+		return domain.Result{}, fmt.Errorf("%w: sanitize report HTML: %v", domain.ErrInvalidResponse, err)
+	}
+	if cleanHTML == "" {
+		return domain.Result{}, fmt.Errorf("%w: report HTML has no usable content", domain.ErrInvalidResponse)
+	}
+	byID := make(map[string]ReportSource, len(sources))
+	for _, source := range sources {
+		byID[source.ID] = source
+	}
+	result := domain.Result{ReportHTML: cleanHTML, Sources: make([]domain.Source, 0, len(report.SourceIDs))}
+	seenIDs := make(map[string]struct{}, len(report.SourceIDs))
+	for _, id := range report.SourceIDs {
+		source, exists := byID[id]
+		if !exists {
+			return domain.Result{}, fmt.Errorf("%w: report references an unknown source", domain.ErrInvalidResponse)
+		}
+		if _, exists := seenIDs[id]; exists {
+			return domain.Result{}, fmt.Errorf("%w: report references a source more than once", domain.ErrInvalidResponse)
+		}
+		seenIDs[id] = struct{}{}
+		result.Sources = append(result.Sources, domain.Source{URL: source.URL, Title: source.Title})
+	}
+	return result, nil
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func isHTTPURL(rawURL string) bool {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
+	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+func sourceText(content string) string {
+	document, err := html.Parse(strings.NewReader(content))
+	if err != nil {
+		return ""
+	}
+	var text strings.Builder
+	writeText(&text, document)
+	return strings.Join(strings.Fields(text.String()), " ")
+}
+
+func writeText(output *strings.Builder, node *html.Node) {
+	if node.Type == html.TextNode {
+		output.WriteString(node.Data)
+		output.WriteByte(' ')
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		writeText(output, child)
+	}
+}
