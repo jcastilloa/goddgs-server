@@ -21,8 +21,8 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &specification); err != nil {
 		t.Fatalf("decode specification: %v", err)
 	}
-	if specification["openapi"] != "3.1.0" {
-		t.Errorf("openapi = %#v, want 3.1.0", specification["openapi"])
+	if specification["openapi"] != "3.0.3" {
+		t.Errorf("openapi = %#v, want 3.0.3", specification["openapi"])
 	}
 	if info, ok := specification["info"].(map[string]any); !ok || info["version"] != "test" {
 		t.Errorf("info = %#v, want configured version", specification["info"])

@@ -26,6 +26,52 @@ Search endpoints accept `q` (or `query`), `region`, `safesearch`, `timelimit`, `
 
 Search results are returned without narrowing `goddgs` types: numbers, nested maps, and null values are preserved. Documentation is served at `/docs/`, and the OpenAPI specification at `/openapi.json`.
 
+### Interactive API documentation
+
+With the default configuration, open Swagger UI at:
+
+```text
+http://localhost:8080/docs/
+```
+
+For a server listening on `10.9.0.1:8097`, the URL is:
+
+```text
+http://10.9.0.1:8097/docs/
+```
+
+Swagger UI loads the dynamically generated OpenAPI document from `/openapi.json`. You can retrieve that document directly, for code generation or another OpenAPI client:
+
+```text
+http://10.9.0.1:8097/openapi.json
+```
+
+When `auth.token` is configured, the documentation and specification also require authentication. In Swagger UI, click **Authorize**, enter only the token value (without `Bearer `), then execute requests. From the command line:
+
+```sh
+curl -H 'Authorization: Bearer <token>' http://10.9.0.1:8097/openapi.json
+```
+
+### Find a news article and extract its body
+
+`/v1/news` finds articles; it does not download their complete bodies. Use the `url` returned by a news result with `/v1/extract`. This keeps each API route mapped to one `goddgs` operation.
+
+```sh
+ARTICLE_URL="$(
+  curl -sG 'http://10.9.0.1:8097/v1/news' \
+    --data-urlencode 'q=Go programming' \
+    --data-urlencode 'max_results=5' |
+  jq -r '.[0].url'
+)"
+
+curl -sG 'http://10.9.0.1:8097/v1/extract' \
+  --data-urlencode "url=$ARTICLE_URL" \
+  --data-urlencode 'format=text_plain' |
+jq -r '.Content'
+```
+
+Use `text_plain` for clean, readable text. `text_markdown` is the default, `text_rich` retains richer structure, and `text` returns the source response text. Paywalls, JavaScript-only pages, or publisher blocking can prevent a complete extraction.
+
 If `auth.token` is not empty, every route requires:
 
 ```text

@@ -31,7 +31,7 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 		version = "0.1.0"
 	}
 	specification := gin.H{
-		"openapi": "3.1.0",
+		"openapi": "3.0.3",
 		"info": gin.H{
 			"title":   "goddgs-server API",
 			"version": version,
