@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -147,6 +148,39 @@ func TestExtractClientRetriesRetryableServerErrors(t *testing.T) {
 	}
 	if attempts != 2 {
 		t.Errorf("attempts = %d, want 2", attempts)
+	}
+}
+
+func TestExtractClientRetriesAfterAnAttemptTimeout(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if attempts.Add(1) == 1 {
+			time.Sleep(50 * time.Millisecond)
+			return
+		}
+		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"<p>Clean</p>"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := newClient(
+		configDomain.LLMConfig{BaseURL: server.URL, APIKey: "test-key"},
+		configDomain.ExtractAIConfig{Model: "gpt-4.1-mini", Timeout: 20 * time.Millisecond, Temperature: 0.15, Retries: 1},
+		&http.Client{},
+		func(context.Context, time.Duration) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("newClient() error = %v", err)
+	}
+
+	got, err := client.Complete(context.Background(), "system", "source")
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if attempts.Load() != 2 {
+		t.Errorf("attempts = %d, want 2", attempts.Load())
+	}
+	if got != "<p>Clean</p>" {
+		t.Errorf("Complete() = %q", got)
 	}
 }
 

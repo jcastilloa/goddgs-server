@@ -109,13 +109,17 @@ func (c *ExtractClient) Complete(ctx context.Context, systemPrompt, userPrompt s
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
 
 	for attempt := 0; ; attempt++ {
-		content, retryable, err := c.complete(ctx, systemPrompt, userPrompt)
+		attemptContext, cancel := context.WithTimeout(ctx, c.timeout)
+		content, retryable, err := c.complete(attemptContext, systemPrompt, userPrompt)
+		attemptTimedOut := errors.Is(attemptContext.Err(), context.DeadlineExceeded)
+		cancel()
 		if err == nil {
 			return content, nil
+		}
+		if attemptTimedOut && ctx.Err() == nil {
+			retryable = true
 		}
 		if !retryable || attempt >= c.retries {
 			return "", err

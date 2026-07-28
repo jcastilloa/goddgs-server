@@ -37,7 +37,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	extractPath := paths["/v1/extract"].(map[string]any)
 	extractGet := extractPath["get"].(map[string]any)
-	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format=html", "service.request_timeout", "extract_ai.timeout") {
+	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format=html", "service.request_timeout", "extract_ai.timeout", "additional attempts", "attempt timeouts") {
 		t.Errorf("extract description = %q", description)
 	}
 	parameters := extractGet["parameters"].([]any)
@@ -235,7 +235,7 @@ func assertResearchDocumentation(t *testing.T, paths map[string]any) {
 		t.Fatalf("research operation = %#v", path)
 	}
 	description := operation["description"].(string)
-	if !containsAll(description, "query_count × results_per_query", "candidate ID, title, description, and URL", "not crawled", "research.selection_ai.*", "research.max_selection_candidates", "research.max_selected_sources", "source_selection_ms", "candidates_found", "candidates_selected") {
+	if !containsAll(description, "query_count × results_per_query", "candidate ID, title, description, and URL", "not crawled", "research.selection_ai.*", "research.max_selection_candidates", "research.max_selected_sources", "source_selection_ms", "candidates_found", "candidates_selected", "timeout applies to an attempt", "additional retryable attempts") {
 		t.Errorf("research description = %q", description)
 	}
 	requestBody := operation["requestBody"].(map[string]any)

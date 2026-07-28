@@ -265,7 +265,7 @@ curl -sG 'http://localhost:8080/v1/extract' \
 jq -r '.Content'
 ```
 
-AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required. It is not constrained by `service.request_timeout`: extracting Markdown through goddgs uses that timeout, and then the LLM call uses `extract_ai.timeout`.
+AI mode is enabled only when the complete `llm` and `extract_ai` configuration is usable. Otherwise heuristic mode remains fully available and AI requests return `503` with the exact settings required. It is not constrained by `service.request_timeout`: extracting Markdown through goddgs uses that timeout, then each LLM attempt gets `extract_ai.timeout`. `extract_ai.retries` is the number of additional attempts after the first, for retryable transport errors, rate limits, retryable HTTP statuses, and attempt timeouts.
 
 ```yaml
 llm:
@@ -364,7 +364,7 @@ research:
     retries: 2
 ```
 
-The query, selection, and report models each use their own model, temperature, timeout, and retry policy while sharing `llm.base_url`, `llm.api_key`, and `llm.headers`. `selection_ai` receives only the server-assigned candidate ID, title, description, and URL metadata. `research.max_selection_candidates` limits selector input, `research.max_selected_sources` limits source-page downloads, and `research.max_concurrent_extractions` limits concurrent extraction requests; all must be positive. `extract_ai` controls the AI extraction call for each selection-approved source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
+The query, selection, and report models each use their own model, temperature, timeout, and retry policy while sharing `llm.base_url`, `llm.api_key`, and `llm.headers`. Every configured LLM timeout applies to each attempt, and its `retries` value is the number of additional retryable attempts. `selection_ai` receives only the server-assigned candidate ID, title, description, and URL metadata. `research.max_selection_candidates` limits selector input, `research.max_selected_sources` limits source-page downloads, and `research.max_concurrent_extractions` limits concurrent extraction requests; all must be positive. `extract_ai` controls the AI extraction call for each selection-approved source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
 
 ### Authentication
 
