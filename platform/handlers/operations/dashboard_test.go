@@ -146,8 +146,22 @@ func TestDashboardContainsOperationalControlsAndLiveDuration(t *testing.T) {
 		"operation-inspector",
 		"updated-at",
 		"proxy-health",
+		"account-username",
+		"Change password",
+		"Sign out",
+		"operations_csrf",
+		"/operations/api/auth/logout",
+		"/operations/api/auth/password",
+		"await handleResponse(await fetch('/operations/api/auth/logout'",
+		"function setAccountMenu(open)",
+		"function openPasswordDialog()",
+		"function closePasswordDialog()",
+		"event.key === 'Escape'",
 	) {
 		t.Errorf("dashboard response = status %d body %q", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "finally { window.location.assign('/operations/login'); }") {
+		t.Error("dashboard logout redirects even when the logout request fails")
 	}
 }
 

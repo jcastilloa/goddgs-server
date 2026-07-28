@@ -57,6 +57,8 @@
     .subtitle { margin: 0; color: var(--muted); }
     .header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
     .live-state, .freshness, .range-selector, .filter-control, .button { border: 1px solid var(--line); border-radius: 12px; background: rgba(15, 23, 42, .72); }
+    .account-menu { position: relative; } .account-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 11px; border: 1px solid rgba(103,168,255,.3); border-radius: 12px; color: #dceafe; background: var(--primary-soft); font: inherit; font-size: .8rem; font-weight: 760; } .account-avatar { display:grid; width:21px; height:21px; place-items:center; border-radius:50%; color:#071221; background:#d9e8ff; font-size:.69rem; font-weight:900; } .account-panel { position:absolute; z-index:2; top:calc(100% + 8px); right:0; display:grid; width:205px; gap:6px; padding:8px; border:1px solid var(--line-strong); border-radius:13px; background:#101b32; box-shadow:0 16px 40px rgba(0,0,0,.34); } .account-panel button { width:100%; border:0; border-radius:8px; padding:9px 10px; color:#dceafe; background:transparent; text-align:left; font:inherit; font-size:.8rem; font-weight:700; } .account-panel button:hover { background:rgba(103,168,255,.13); } .account-panel .danger-action { color:#ffc3ce; }
+    .dialog-backdrop { position:fixed; z-index:5; inset:0; display:grid; place-items:center; padding:16px; background:rgba(4,8,18,.72); } .password-dialog { width:min(100%,430px); padding:22px; border:1px solid var(--line-strong); border-radius:18px; background:#101b32; box-shadow:0 24px 60px rgba(0,0,0,.45); } .password-dialog h2 { margin:0 0 7px; } .password-dialog p { color:var(--muted); font-size:.84rem; line-height:1.5; } .password-dialog form { display:grid; gap:12px; margin-top:18px; } .password-dialog label { display:grid; gap:6px; color:#dceafe; font-size:.8rem; font-weight:700; } .password-dialog input { min-height:40px; border:1px solid var(--line); border-radius:9px; padding:0 10px; color:var(--ink); background:rgba(6,12,27,.72); font:inherit; } .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:7px; }
     .live-state { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: .8rem; }
     .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px rgba(45, 212, 168, .11); }
     .range-selector { display: flex; gap: 3px; padding: 4px; }
@@ -174,6 +176,7 @@
       </div>
       <div class="header-actions">
         <span class="live-state"><span class="live-dot"></span>Auto-refresh</span>
+        <div class="account-menu"><button id="account-toggle" class="account-toggle" type="button" aria-expanded="false" aria-controls="account-panel"><span id="account-avatar" class="account-avatar">?</span><span id="account-username">Signed in</span></button><div id="account-panel" class="account-panel hidden"><button id="change-password" type="button">Change password</button><button id="logout" class="danger-action" type="button">Sign out</button></div></div>
         <div class="range-selector" aria-label="Time range">
           <button class="range is-active" type="button" data-range="24h" aria-pressed="true">24 h</button>
           <button class="range" type="button" data-range="7d" aria-pressed="false">7 days</button>
@@ -243,6 +246,8 @@
     <footer><span>Operation data is persisted locally.</span><span>Auto-refreshes every 5 seconds · <span id="footer-range">Last 24 hours</span></span></footer>
   </main>
 
+  <div id="password-dialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="password-title"><section class="password-dialog"><h2 id="password-title">Change password</h2><p>Changing your password signs out other dashboard sessions.</p><form id="password-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><p id="password-error" class="alert hidden" role="alert"></p><div class="dialog-actions"><button id="cancel-password" class="button" type="button">Cancel</button><button id="save-password" class="button" type="submit">Save password</button></div></form></section></div>
+
   <script>
     const state = { range: '24h', status: '', type: '', operations: [], total: 0, refreshing: false, selectedOperationID: null };
     const charts = {};
@@ -255,6 +260,20 @@
     function endpoint(name, parameters = {}) {
       const query = new URLSearchParams({ range: state.range, ...parameters });
       return `/operations/api/${name}?${query}`;
+    }
+
+    function csrfToken() { return document.cookie.split('; ').find(value => value.startsWith('operations_csrf='))?.split('=').slice(1).join('=') || ''; }
+
+    async function handleResponse(response, message) {
+      if (response.status === 401) { window.location.assign('/operations/login'); throw new Error('Your session has expired'); }
+      if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.error || message); }
+      return response;
+    }
+
+    async function loadSession() {
+      const response = await handleResponse(await fetch('/operations/api/auth/session'), 'Could not load dashboard session');
+      const session = await response.json(); const username = session.username || 'Operator';
+      document.querySelector('#account-username').textContent = username; document.querySelector('#account-avatar').textContent = username.slice(0, 1).toUpperCase();
     }
 
     function formatCount(value) { return numberFormatter.format(value || 0); }
@@ -557,8 +576,7 @@
       const panel = document.querySelector('#operation-inspector');
       panel.textContent = 'Loading details…';
       try {
-        const response = await fetch(`/operations/api/operations/${encodeURIComponent(id)}`);
-        if (!response.ok) throw new Error('Could not load this operation’s details');
+        const response = await handleResponse(await fetch(`/operations/api/operations/${encodeURIComponent(id)}`), 'Could not load this operation’s details');
         renderOperationDetail(await response.json());
       } catch (failure) {
         panel.textContent = failure.message;
@@ -592,8 +610,7 @@
     }
 
     async function fetchJSON(name, parameters) {
-      const response = await fetch(endpoint(name, parameters));
-      if (!response.ok) throw new Error(`Could not load ${name}`);
+      const response = await handleResponse(await fetch(endpoint(name, parameters)), `Could not load ${name}`);
       return response.json();
     }
 
@@ -637,7 +654,16 @@
     document.querySelector('#operations-status').onchange = event => { state.status = event.target.value; refresh(); };
     document.querySelector('#operations-type').onchange = event => { state.type = event.target.value; refresh(); };
     document.querySelector('#load-more').onclick = async event => { event.currentTarget.disabled = true; try { await loadOperations(true); } catch (failure) { document.querySelector('#error').textContent = failure.message; document.querySelector('#error').classList.remove('hidden'); } finally { event.currentTarget.disabled = false; } };
-    refresh();
+    function setAccountMenu(open) { document.querySelector('#account-panel').classList.toggle('hidden', !open); document.querySelector('#account-toggle').setAttribute('aria-expanded', String(open)); }
+    function openPasswordDialog() { setAccountMenu(false); document.querySelector('#password-dialog').classList.remove('hidden'); document.querySelector('#current-password').focus(); }
+    function closePasswordDialog() { document.querySelector('#password-dialog').classList.add('hidden'); document.querySelector('#password-form').reset(); document.querySelector('#password-error').classList.add('hidden'); document.querySelector('#account-toggle').focus(); }
+    document.querySelector('#account-toggle').onclick = () => { const open = document.querySelector('#account-panel').classList.contains('hidden'); setAccountMenu(open); };
+    document.querySelector('#change-password').onclick = openPasswordDialog;
+    document.querySelector('#cancel-password').onclick = closePasswordDialog;
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('#password-dialog').classList.contains('hidden')) closePasswordDialog(); });
+    document.querySelector('#logout').onclick = async () => { try { await handleResponse(await fetch('/operations/api/auth/logout', { method:'POST', headers:{'X-Operations-CSRF':csrfToken()} }), 'Could not sign out'); window.location.assign('/operations/login'); } catch (failure) { document.querySelector('#error').textContent = failure.message; document.querySelector('#error').classList.remove('hidden'); } };
+    document.querySelector('#password-form').onsubmit = async event => { event.preventDefault(); const error = document.querySelector('#password-error'); const button = document.querySelector('#save-password'); error.classList.add('hidden'); button.disabled = true; try { await handleResponse(await fetch('/operations/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Operations-CSRF':csrfToken()}, body:JSON.stringify({ current_password:document.querySelector('#current-password').value, new_password:document.querySelector('#new-password').value }) }), 'Could not change password'); closePasswordDialog(); } catch (failure) { error.textContent = failure.message; error.classList.remove('hidden'); } finally { button.disabled = false; } };
+    loadSession().then(refresh).catch(() => {});
     setInterval(refresh, 5000);
     setInterval(updateLiveDurations, 1000);
   </script>

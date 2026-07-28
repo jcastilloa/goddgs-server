@@ -86,6 +86,10 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 	if operationsRetention == 0 {
 		operationsRetention = configDomain.DefaultOperationsRetention
 	}
+	dashboardSessionTTL := r.v.GetDuration("operations.dashboard_auth.session_ttl")
+	if !r.v.IsSet("operations.dashboard_auth.session_ttl") {
+		dashboardSessionTTL = configDomain.DefaultDashboardAuthSessionTTL
+	}
 
 	return configDomain.ServerConfig{
 		Service:         r.ServiceConfig(),
@@ -130,6 +134,10 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 				Timeout:          r.v.GetDuration("operations.probe.timeout"),
 				SuccessThreshold: r.v.GetInt("operations.probe.success_threshold"),
 				FailureThreshold: r.v.GetInt("operations.probe.failure_threshold"),
+			},
+			DashboardAuth: configDomain.DashboardAuthConfig{
+				SessionTTL:   dashboardSessionTTL,
+				CookieSecure: r.v.GetBool("operations.dashboard_auth.cookie_secure"),
 			},
 		},
 	}

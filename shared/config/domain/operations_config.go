@@ -7,12 +7,21 @@ import (
 	"time"
 )
 
-const DefaultOperationsRetention = 30 * 24 * time.Hour
+const (
+	DefaultOperationsRetention     = 30 * 24 * time.Hour
+	DefaultDashboardAuthSessionTTL = 12 * time.Hour
+)
 
 type OperationsConfig struct {
-	DatabasePath string
-	Retention    time.Duration
-	Probe        ProbeConfig
+	DatabasePath  string
+	Retention     time.Duration
+	Probe         ProbeConfig
+	DashboardAuth DashboardAuthConfig
+}
+
+type DashboardAuthConfig struct {
+	SessionTTL   time.Duration
+	CookieSecure bool
 }
 
 type ProbeConfig struct {
@@ -27,6 +36,9 @@ type ProbeConfig struct {
 func (c OperationsConfig) Validate() error {
 	if c.Retention <= 0 {
 		return fmt.Errorf("%w: operations retention must be positive", ErrInvalidConfiguration)
+	}
+	if c.DashboardAuth.SessionTTL <= 0 {
+		return fmt.Errorf("%w: operations dashboard auth session TTL must be positive", ErrInvalidConfiguration)
 	}
 	return c.Probe.Validate()
 }

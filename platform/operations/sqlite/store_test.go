@@ -68,13 +68,13 @@ func TestOpenMigratesSchemaEnablesPragmasAndSupportsReopen(t *testing.T) {
 	store := openStore(t, path)
 	defer store.Close()
 
-	for _, table := range []string{"schema_migrations", "operations", "operation_steps", "operation_errors", "proxy_probes", "proxy_health_transitions"} {
+	for _, table := range []string{"schema_migrations", "operations", "operation_steps", "operation_errors", "proxy_probes", "proxy_health_transitions", "operations_dashboard_users", "operations_dashboard_sessions"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil {
 			t.Errorf("table %q not found: %v", table, err)
 		}
 	}
-	for _, index := range []string{"operations_started_at_idx", "operations_finished_at_idx", "operations_status_idx", "operations_type_idx", "proxy_probes_name_observed_at_idx", "proxy_probes_observed_at_idx", "proxy_health_transitions_name_occurred_at_idx"} {
+	for _, index := range []string{"operations_started_at_idx", "operations_finished_at_idx", "operations_status_idx", "operations_type_idx", "proxy_probes_name_observed_at_idx", "proxy_probes_observed_at_idx", "proxy_health_transitions_name_occurred_at_idx", "operations_dashboard_sessions_expires_at_idx"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?", index).Scan(&name); err != nil {
 			t.Errorf("index %q not found: %v", index, err)

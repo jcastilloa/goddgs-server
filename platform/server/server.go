@@ -10,6 +10,7 @@ import (
 
 	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
 	operations "github.com/jcastilloa/goddgs-server/operations/domain"
+	operationsHandler "github.com/jcastilloa/goddgs-server/platform/handlers/operations"
 	"github.com/jcastilloa/goddgs-server/platform/routes"
 
 	"github.com/gin-gonic/gin"
@@ -17,30 +18,47 @@ import (
 )
 
 type Server struct {
-	engine    *gin.Engine
-	container di.Container
+	engine        *gin.Engine
+	container     di.Container
+	dashboardAuth dashboardAuthenticator
+	cookieSecure  bool
 }
 
-func New(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration) *Server {
+type DashboardAuthOption func(*Server)
+
+func WithDashboardAuthentication(authenticator dashboardAuthenticator, cookieSecure bool) DashboardAuthOption {
+	return func(server *Server) {
+		server.dashboardAuth = authenticator
+		server.cookieSecure = cookieSecure
+	}
+}
+
+func New(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, options ...DashboardAuthOption) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
 	engine.Use(selectiveAuthentication(authToken, apiPrefix))
 	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research", normalizePrefix(apiPrefix)+"/extract"))
 
-	s := &Server{engine: engine, container: container}
+	s := &Server{engine: engine, container: container, dashboardAuth: operationsHandler.EmptyDashboardAuthUseCase{}}
+	for _, option := range options {
+		option(s)
+	}
 	s.registerRoutes(engine.Group(""), apiPrefix)
 	s.registerDocumentation(engine.Group(""), normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
 	s.registerOperationsRoutes()
 	return s
 }
 
-func NewWithRecorder(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, recorder operationsApplication.EventRecorder) *Server {
+func NewWithRecorder(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, recorder operationsApplication.EventRecorder, options ...DashboardAuthOption) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
 	engine.Use(selectiveAuthentication(authToken, apiPrefix))
 	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research", normalizePrefix(apiPrefix)+"/extract"))
 
-	s := &Server{engine: engine, container: container}
+	s := &Server{engine: engine, container: container, dashboardAuth: operationsHandler.EmptyDashboardAuthUseCase{}}
+	for _, option := range options {
+		option(s)
+	}
 	s.registerRoutesWithRecorder(engine.Group(""), apiPrefix, recorder)
 	s.registerDocumentation(engine.Group(""), normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
 	s.registerOperationsRoutes()
@@ -115,7 +133,18 @@ func (s *Server) registerRoutesWithRecorder(protected *gin.RouterGroup, apiPrefi
 }
 
 func (s *Server) registerOperationsRoutes() {
-	routes.AddOperationsRoutes(s.engine.Group("/operations"), s.container)
+	public := s.engine.Group("/operations")
+	protected := s.engine.Group("/operations")
+	protected.Use(dashboardAuthentication(s.dashboardAuth, s.cookieSecure))
+	routes.AddOperationsRoutes(public, protected, s.container)
+}
+
+func NewWithDashboardAuth(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, dashboardAuth dashboardAuthenticator, cookieSecure bool) *Server {
+	return New(container, apiPrefix, version, authToken, requestTimeout, researchTimeout, WithDashboardAuthentication(dashboardAuth, cookieSecure))
+}
+
+func NewWithRecorderAndDashboardAuth(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, recorder operationsApplication.EventRecorder, dashboardAuth dashboardAuthenticator, cookieSecure bool) *Server {
+	return NewWithRecorder(container, apiPrefix, version, authToken, requestTimeout, researchTimeout, recorder, WithDashboardAuthentication(dashboardAuth, cookieSecure))
 }
 
 func operationRecorderMiddleware(recorder operationsApplication.EventRecorder) gin.HandlerFunc {

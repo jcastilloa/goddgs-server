@@ -53,6 +53,9 @@ research:
 operations:
   database_path: /var/lib/goddgs/operations.sqlite
   retention: 48h
+  dashboard_auth:
+    session_ttl: 6h
+    cookie_secure: true
   probe:
     enabled: true
     url: https://status.example.com/probe
@@ -113,6 +116,9 @@ proxies:
 	if probe := got.Operations.Probe; !probe.Enabled || probe.URL != "https://status.example.com/probe" || probe.Interval != 2*time.Minute || probe.Timeout != 7*time.Second || probe.SuccessThreshold != 2 || probe.FailureThreshold != 3 {
 		t.Errorf("Operations.Probe = %#v", probe)
 	}
+	if auth := got.Operations.DashboardAuth; auth.SessionTTL != 6*time.Hour || !auth.CookieSecure {
+		t.Errorf("Operations.DashboardAuth = %#v", auth)
+	}
 	if len(got.Proxies) != 2 {
 		t.Fatalf("Proxies length = %d, want 2", len(got.Proxies))
 	}
@@ -149,7 +155,7 @@ proxies:
 	if err != nil {
 		t.Fatalf("NewFromFile() error = %v", err)
 	}
-	if got := repository.ServerConfig().Operations; got.DatabasePath != "" || got.Retention != configDomain.DefaultOperationsRetention {
+	if got := repository.ServerConfig().Operations; got.DatabasePath != "" || got.Retention != configDomain.DefaultOperationsRetention || got.DashboardAuth.SessionTTL != configDomain.DefaultDashboardAuthSessionTTL {
 		t.Errorf("Operations = %#v", got)
 	}
 
@@ -162,6 +168,30 @@ proxies:
 `))
 	if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
 		t.Errorf("NewFromFile() error = %v, want ErrInvalidConfiguration", err)
+	}
+
+	_, err = NewFromFile(writeConfig(t, `
+operations:
+  dashboard_auth:
+    session_ttl: -1h
+proxies:
+  - name: local
+    type: direct
+`))
+	if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
+		t.Errorf("NewFromFile() negative dashboard session TTL error = %v, want ErrInvalidConfiguration", err)
+	}
+
+	_, err = NewFromFile(writeConfig(t, `
+operations:
+  dashboard_auth:
+    session_ttl: 0s
+proxies:
+  - name: local
+    type: direct
+`))
+	if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
+		t.Errorf("NewFromFile() zero dashboard session TTL error = %v, want ErrInvalidConfiguration", err)
 	}
 }
 

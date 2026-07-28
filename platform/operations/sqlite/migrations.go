@@ -16,11 +16,38 @@ var migrations = []migration{
 	{version: 2, apply: applyEventSchema},
 	{version: 3, apply: applyProbeHealthSchema},
 	{version: 4, apply: applyDashboardIndexes},
+	{version: 5, apply: applyDashboardAuthSchema},
 }
 
 func applyDashboardIndexes(ctx context.Context, transaction *sql.Tx) error {
 	_, err := transaction.ExecContext(ctx, "CREATE INDEX proxy_probes_observed_at_idx ON proxy_probes(observed_at)")
 	return err
+}
+
+func applyDashboardAuthSchema(ctx context.Context, transaction *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE operations_dashboard_users (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`,
+		`CREATE TABLE operations_dashboard_sessions (
+  token_hash TEXT PRIMARY KEY,
+  csrf_hash TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES operations_dashboard_users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+)`,
+		"CREATE INDEX operations_dashboard_sessions_expires_at_idx ON operations_dashboard_sessions(expires_at)",
+	}
+	for _, statement := range statements {
+		if _, err := transaction.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrate(ctx context.Context, database *sql.DB) error {

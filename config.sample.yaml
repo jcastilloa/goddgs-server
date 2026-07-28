@@ -39,6 +39,11 @@ operations:
   database_path: ""
   # How long completed operational records are kept.
   retention: 720h
+  dashboard_auth:
+    # Session lifetime for the local operations dashboard account.
+    session_ttl: 12h
+    # Set true when users access the dashboard through HTTPS.
+    cookie_secure: false
   # Disabled by default: active probes generate outbound traffic.
   probe:
     enabled: false

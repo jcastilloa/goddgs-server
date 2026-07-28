@@ -42,7 +42,7 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 			{"name": "Search", "description": "goddgs metasearch endpoints."},
 			{"name": "Extraction", "description": "Page-content extraction endpoints."},
 			{"name": "Research", "description": "Multi-source evidence-based web research."},
-			{"name": "Operations", "description": "Unauthenticated operational dashboard and its read-only data API."},
+			{"name": "Operations", "description": "Cookie-authenticated operational dashboard, session lifecycle, and telemetry API."},
 		},
 		"paths": gin.H{
 			apiPrefix + "/version": versionPath(),
@@ -64,6 +64,13 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 			}},
 			apiPrefix + "/research":           researchPath(),
 			"/operations":                     operationsDashboardPath(),
+			"/operations/setup":               operationsSetupPagePath(),
+			"/operations/login":               operationsLoginPagePath(),
+			"/operations/api/auth/setup":      operationsSetupPath(),
+			"/operations/api/auth/login":      operationsLoginPath(),
+			"/operations/api/auth/session":    operationsSessionPath(),
+			"/operations/api/auth/logout":     operationsLogoutPath(),
+			"/operations/api/auth/password":   operationsPasswordPath(),
 			"/operations/api/summary":         operationsSummaryPath(),
 			"/operations/api/timeseries":      operationsTimeSeriesPath(),
 			"/operations/api/operations":      operationsListPath(),
@@ -72,7 +79,8 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 		},
 		"components": gin.H{
 			"securitySchemes": gin.H{
-				"bearerAuth": gin.H{"type": "http", "scheme": "bearer"},
+				"bearerAuth":        gin.H{"type": "http", "scheme": "bearer"},
+				"operationsSession": gin.H{"type": "apiKey", "in": "cookie", "name": "operations_session", "description": "Opaque HttpOnly dashboard session cookie. It is issued by setup or login; auth.token bearer credentials never authorize dashboard routes."},
 			},
 		},
 	}

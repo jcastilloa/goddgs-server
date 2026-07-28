@@ -82,16 +82,16 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 func assertOperationsDocumentation(t *testing.T, paths map[string]any) {
 	t.Helper()
 	dashboard := documentedGetOperation(t, paths, "/operations")
-	if !hasEmptySecurity(dashboard) || dashboard["responses"].(map[string]any)["200"] == nil {
-		t.Errorf("dashboard operation = %#v, want public HTML contract", dashboard)
+	if !hasOperationsSessionSecurity(dashboard) || dashboard["responses"].(map[string]any)["200"] == nil || dashboard["responses"].(map[string]any)["303"] == nil {
+		t.Errorf("dashboard operation = %#v, want authenticated HTML contract", dashboard)
 	}
 	for _, path := range []string{"/operations/api/summary", "/operations/api/timeseries", "/operations/api/operations", "/operations/api/operations/{id}", "/operations/api/proxies"} {
 		operation := documentedGetOperation(t, paths, path)
-		if !hasEmptySecurity(operation) || operation["description"] == "" {
-			t.Errorf("%s operation = %#v, want explicit public security and description", path, operation)
+		if !hasOperationsSessionSecurity(operation) || operation["description"] == "" {
+			t.Errorf("%s operation = %#v, want cookie security and description", path, operation)
 		}
 		responses := operation["responses"].(map[string]any)
-		for _, status := range []string{"200", "400", "500"} {
+		for _, status := range []string{"200", "400", "401", "500"} {
 			if responses[status] == nil || responses[status].(map[string]any)["content"] == nil {
 				t.Errorf("%s responses = %#v, missing %s", path, responses, status)
 			}
@@ -111,6 +111,112 @@ func assertOperationsDocumentation(t *testing.T, paths map[string]any) {
 	if detail["responses"].(map[string]any)["404"] == nil {
 		t.Errorf("detail responses = %#v, want 404", detail["responses"])
 	}
+	for _, path := range []string{"/operations/setup", "/operations/login"} {
+		operation := documentedGetOperation(t, paths, path)
+		if !hasEmptySecurity(operation) || operation["responses"].(map[string]any)["303"] == nil {
+			t.Errorf("%s = %#v, want public page and redirection", path, operation)
+		}
+	}
+	for _, path := range []string{"/operations/api/auth/setup", "/operations/api/auth/login"} {
+		operation := documentedPostOperation(t, paths, path)
+		if !hasEmptySecurity(operation) || !hasDashboardCredentialRequestBody(operation) || !hasSetCookieHeader(operation) {
+			t.Errorf("%s operation = %#v, want public credentials contract and session cookies", path, operation)
+		}
+	}
+	for _, path := range []string{"/operations/api/auth/setup", "/operations/api/auth/login", "/operations/api/auth/session", "/operations/api/auth/logout", "/operations/api/auth/password"} {
+		pathItem, ok := paths[path].(map[string]any)
+		if !ok {
+			t.Errorf("missing auth path %s", path)
+			continue
+		}
+		method := "post"
+		if path == "/operations/api/auth/session" {
+			method = "get"
+		}
+		operation, ok := pathItem[method].(map[string]any)
+		if !ok {
+			t.Errorf("%s = %#v, want %s operation", path, pathItem, method)
+			continue
+		}
+		if operation["description"] == "" || operation["responses"] == nil {
+			t.Errorf("%s operation = %#v", path, operation)
+		}
+	}
+	for _, path := range []string{"/operations/api/auth/session", "/operations/api/auth/logout", "/operations/api/auth/password"} {
+		method := "post"
+		if path == "/operations/api/auth/session" {
+			method = "get"
+		}
+		operation := paths[path].(map[string]any)[method].(map[string]any)
+		if !hasOperationsSessionSecurity(operation) || operation["responses"].(map[string]any)["401"] == nil {
+			t.Errorf("%s operation = %#v, want protected session contract", path, operation)
+		}
+	}
+	for _, path := range []string{"/operations/api/auth/logout", "/operations/api/auth/password"} {
+		operation := documentedPostOperation(t, paths, path)
+		if !hasParameter(operation, "X-Operations-CSRF") || operation["responses"].(map[string]any)["403"] == nil {
+			t.Errorf("%s operation = %#v, want CSRF contract", path, operation)
+		}
+	}
+}
+
+func documentedPostOperation(t *testing.T, paths map[string]any, path string) map[string]any {
+	t.Helper()
+	pathItem, ok := paths[path].(map[string]any)
+	if !ok {
+		t.Fatalf("path %s = %#v", path, paths[path])
+	}
+	operation, ok := pathItem["post"].(map[string]any)
+	if !ok {
+		t.Fatalf("post %s = %#v", path, pathItem)
+	}
+	return operation
+}
+
+func hasDashboardCredentialRequestBody(operation map[string]any) bool {
+	requestBody, ok := operation["requestBody"].(map[string]any)
+	if !ok {
+		return false
+	}
+	content, ok := requestBody["content"].(map[string]any)
+	if !ok {
+		return false
+	}
+	jsonContent, ok := content["application/json"].(map[string]any)
+	if !ok {
+		return false
+	}
+	schema, ok := jsonContent["schema"].(map[string]any)
+	if !ok {
+		return false
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	return ok && properties["username"] != nil && properties["password"] != nil
+}
+
+func hasSetCookieHeader(operation map[string]any) bool {
+	responses, ok := operation["responses"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, status := range []string{"200", "201"} {
+		response, ok := responses[status].(map[string]any)
+		if !ok {
+			continue
+		}
+		headers, ok := response["headers"].(map[string]any)
+		return ok && headers["Set-Cookie"] != nil
+	}
+	return false
+}
+
+func hasOperationsSessionSecurity(operation map[string]any) bool {
+	security, ok := operation["security"].([]any)
+	if !ok || len(security) != 1 {
+		return false
+	}
+	requirement, ok := security[0].(map[string]any)
+	return ok && requirement["operationsSession"] != nil
 }
 
 func hasEmptySecurity(operation map[string]any) bool {

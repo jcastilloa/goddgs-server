@@ -104,6 +104,11 @@ operations:
   database_path: /var/lib/goddgs-server/operations.sqlite
   # Completed records and proxy health data are kept for 30 days by default.
   retention: 720h
+  dashboard_auth:
+    # Dashboard sessions last 12 hours unless configured otherwise.
+    session_ttl: 12h
+    # Enable when the browser reaches the service over HTTPS.
+    cookie_secure: true
 ```
 
 The store uses SQLite WAL mode, foreign keys, bounded lock waits, transactional migrations, and hourly retention cleanup. Initialization or cleanup failures stop startup rather than running without persistent operational data.
@@ -133,19 +138,39 @@ Every round records timestamp, latency, HTTP status when available, outcome, and
 
 It displays active, successful, and failed operations; p50/p95 latency; volume and latency charts; recent operations with expandable sanitized detail; and proxy health, availability history, and latency when probe records exist. Use the 24-hour, 7-day, or 30-day selector. Empty operation data produces empty states; the proxy section is hidden when no proxy probe results are available.
 
-The read-only JSON API is public in this phase and is documented in `/openapi.json`:
+### Local dashboard access
 
-| Endpoint | Purpose |
+The dashboard has one local administrator account stored in the operational SQLite database. On the first visit, `GET /operations` redirects to `/operations/setup`; the first operator creates the username and password. Later anonymous visits redirect to `/operations/login`. Usernames are limited to 3–64 ASCII letters, digits, `.`, `_`, or `-`; passwords must be 12–128 characters. Passwords are stored only as Argon2id hashes.
+
+Successful setup or login creates an opaque, server-side session in an `operations_session` cookie. It is `HttpOnly`, `SameSite=Strict`, scoped to `/operations`, and lasts `operations.dashboard_auth.session_ttl` (12 hours by default). The dashboard also receives an `operations_csrf` cookie and sends it in `X-Operations-CSRF` for logout and password changes. Use the account badge in the top-right corner to change the password or sign out. Changing the password revokes all existing dashboard sessions and immediately creates a replacement session for the current browser.
+
+Set `operations.dashboard_auth.cookie_secure: true` (or `OPERATIONS_DASHBOARD_AUTH_COOKIE_SECURE=true`) whenever users access the dashboard through HTTPS. It is `false` by default only to support local HTTP development; a `Secure` cookie cannot be set over plain HTTP. Treat the first setup as a deployment-sensitive step: start the service on a trusted network until the initial account is created.
+
+The dashboard session is independent of `auth.token`: a bearer token never grants access to `/operations` or `/operations/api/*`. Conversely, a dashboard session does not authorize `/v1`, `/openapi.json`, or `/docs/` when `auth.token` is enabled.
+
+### Dashboard JSON API
+
+All dashboard JSON endpoints require the `operations_session` cookie; unauthenticated requests return `401 {"error":"dashboard authentication required"}`. The full cookie, CSRF, validation, and error contracts are documented in `/openapi.json`:
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/operations/api/auth/setup` | `POST` | Create the initial account and session; returns `409 setup_completed` once configured. |
+| `/operations/api/auth/login` | `POST` | Create a session with username/password. |
+| `/operations/api/auth/session` | `GET` | Return the current username. |
+| `/operations/api/auth/logout` | `POST` | Revoke the current session; requires `X-Operations-CSRF`. |
+| `/operations/api/auth/password` | `POST` | Change the password and revoke prior sessions; requires `X-Operations-CSRF`. |
+
+| Endpoint | Method | Purpose |
 | --- | --- |
-| `/operations/api/summary` | Counts and p50/p95 latency for a range. |
-| `/operations/api/timeseries` | Success/error volume and p50/p95 buckets. |
-| `/operations/api/operations` | Sanitized, paginated operation list. |
-| `/operations/api/operations/{id}` | Sanitized operation, steps, and errors. |
-| `/operations/api/proxies` | Probe-based proxy state, latency, and history. |
+| `/operations/api/summary` | `GET` | Counts and p50/p95 latency for a range. |
+| `/operations/api/timeseries` | `GET` | Success/error volume and p50/p95 buckets. |
+| `/operations/api/operations` | `GET` | Sanitized, paginated operation list. |
+| `/operations/api/operations/{id}` | `GET` | Sanitized operation, steps, and errors. |
+| `/operations/api/proxies` | `GET` | Probe-based proxy state, latency, and history. |
 
 The summary, series, list, and proxy endpoints accept `range=24h`, `range=7d`, or `range=30d` (default `24h`), or an explicit `from` and `to` RFC3339 pair no wider than 30 days. The operation-detail endpoint accepts only its path `id`. The list accepts `status`, `type`, `limit` (1–100, default 50), and `offset` (0–10000). The series accepts `interval=1h`, `6h`, or `24h`, with a safe default selected from the range. Invalid dates, ranges, filters, intervals, limits, or IDs return `400`; a missing operation returns `404`; storage failures return `500`.
 
-`auth.token` continues to protect the versioned API, `/openapi.json`, and `/docs/`, but intentionally does **not** protect `/operations` or `/operations/api/*` yet. Bind the service to a trusted network or put this route behind a reverse proxy until the planned dashboard-specific user, password, and session authentication is introduced. The dashboard only exposes the already-sanitized operational data, never request bodies, provider responses, prompts, credentials, or unredacted URLs.
+`auth.token` continues to protect the versioned API, `/openapi.json`, and `/docs/`. It intentionally does **not** substitute for the separate dashboard session. The dashboard only exposes the already-sanitized operational data, never request bodies, provider responses, prompts, credentials, or unredacted URLs.
 
 ## API
 
@@ -335,7 +360,7 @@ If `auth.token` is not empty, every versioned API route plus `/openapi.json` and
 Authorization: Bearer <token>
 ```
 
-`/operations` and `/operations/api/*` are intentionally excluded until dashboard-specific authentication is added; see [Operations dashboard](#operations-dashboard).
+`/operations` and `/operations/api/*` use their own local cookie session; see [Operations dashboard](#operations-dashboard).
 
 ## Proxies
 

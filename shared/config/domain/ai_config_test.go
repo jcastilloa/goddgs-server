@@ -64,7 +64,7 @@ func TestServerConfigResearchConfigurationRequiresSeparateResearchSettings(t *te
 
 func TestOperationsConfigDefaultsAndValidatesRetention(t *testing.T) {
 	configuration := ServerConfig{
-		Operations: OperationsConfig{Retention: 30 * 24 * time.Hour},
+		Operations: OperationsConfig{Retention: 30 * 24 * time.Hour, DashboardAuth: DashboardAuthConfig{SessionTTL: DefaultDashboardAuthSessionTTL}},
 	}
 
 	if err := configuration.Operations.Validate(); err != nil {
@@ -79,7 +79,8 @@ func TestOperationsConfigDefaultsAndValidatesRetention(t *testing.T) {
 
 func TestOperationsProbeConfigRequiresCompleteEnabledConfiguration(t *testing.T) {
 	valid := OperationsConfig{
-		Retention: time.Hour,
+		Retention:     time.Hour,
+		DashboardAuth: DashboardAuthConfig{SessionTTL: DefaultDashboardAuthSessionTTL},
 		Probe: ProbeConfig{
 			Enabled:          true,
 			URL:              "https://status.example.com/probe",
@@ -116,7 +117,7 @@ func TestOperationsProbeConfigRequiresCompleteEnabledConfiguration(t *testing.T)
 }
 
 func TestOperationsProbeConfigAllowsDisabledProbeWithoutSettings(t *testing.T) {
-	if err := (OperationsConfig{Retention: time.Hour}).Validate(); err != nil {
+	if err := (OperationsConfig{Retention: time.Hour, DashboardAuth: DashboardAuthConfig{SessionTTL: DefaultDashboardAuthSessionTTL}}).Validate(); err != nil {
 		t.Errorf("Validate() error = %v", err)
 	}
 }

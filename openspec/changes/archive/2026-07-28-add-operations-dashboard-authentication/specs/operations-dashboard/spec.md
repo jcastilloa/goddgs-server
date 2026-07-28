@@ -1,8 +1,4 @@
-## Purpose
-
-Definir el panel de operaciones, sus rutas y su contrato de consulta autenticada.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Rutas separadas del panel de operaciones
 El sistema SHALL servir el panel HTML en `GET /operations` y su API JSON bajo `/operations/api/*` en el mismo host y puerto que la API. Estas rutas MUST requerir una sesión válida de dashboard y MUST NOT aceptar el bearer token configurado para `/v1` como alternativa. Las rutas API, OpenAPI y Swagger existentes MUST conservar su comportamiento de autenticación bearer.
@@ -52,17 +48,6 @@ El panel autenticado MUST incluir en su zona superior derecha un indicador visib
 #### Scenario: Caducidad durante el refresco
 - **WHEN** una sesión caduca y el siguiente refresco de telemetría recibe 401
 - **THEN** el panel redirige al login sin continuar mostrando datos operativos protegidos
-
-### Requirement: Salud visual de proxies
-El panel SHALL mostrar estado actual, última sonda, latencia y evolución de disponibilidad de los proxies cuando existan datos de proxy. El panel MUST ocultar la sección de proxies cuando no haya proxies configurados o no existan datos de sonda.
-
-#### Scenario: Proxies con resultados de sonda
-- **WHEN** el almacenamiento contiene estados y resultados de sonda de proxies
-- **THEN** el panel muestra una tarjeta por proxy y su evolución de estado y latencia
-
-#### Scenario: Sin proxies configurados
-- **WHEN** el servicio no tiene proxies disponibles para mostrar
-- **THEN** el panel no muestra una sección vacía de proxies y conserva las secciones generales de operaciones
 
 ### Requirement: Entrega sin build frontend
 El sistema SHALL entregar el panel, la configuración inicial, el login y el cambio de contraseña como HTML servido por Go, con Tailwind CSS desde CDN y Chart.js desde CDN cuando corresponda. El proyecto MUST NOT requerir Node.js, npm ni un paso de compilación de frontend para servir estas vistas. Todas las vistas de autenticación MUST reutilizar el lenguaje visual del panel y conservar una experiencia responsiva y accesible.

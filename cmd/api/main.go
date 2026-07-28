@@ -122,7 +122,8 @@ func main() {
 	}
 
 	dashboardService := operationsApplication.NewDashboardService(operationsStore)
-	containerBuilder := containerdi.New(serverCfg.Service.Version, searchService, extractAIService, researchService, dashboardService)
+	dashboardAuthService := operationsApplication.NewDashboardAuthService(operationsStore, operationsApplication.DashboardAuthConfig{SessionTTL: serverCfg.Operations.DashboardAuth.SessionTTL})
+	containerBuilder := containerdi.New(serverCfg.Service.Version, searchService, extractAIService, researchService, dashboardService, containerdi.WithDashboardAuth(dashboardAuthService, serverCfg.Operations.DashboardAuth.CookieSecure))
 	container, err := containerBuilder.Build()
 	if err != nil {
 		log.Print(err)
@@ -130,7 +131,7 @@ func main() {
 	}
 	defer (*container).Delete()
 
-	httpServer := server.NewWithRecorder(*container, serverCfg.Service.APIPrefix, serverCfg.Service.Version, serverCfg.AuthToken, serverCfg.RequestTimeout, serverCfg.Research.Timeout, eventRecorder)
+	httpServer := server.NewWithRecorderAndDashboardAuth(*container, serverCfg.Service.APIPrefix, serverCfg.Service.Version, serverCfg.AuthToken, serverCfg.RequestTimeout, serverCfg.Research.Timeout, eventRecorder, dashboardAuthService, serverCfg.Operations.DashboardAuth.CookieSecure)
 	log.Printf("http server listening on %s%s", serverCfg.Service.HTTPAddress(), serverCfg.Service.NormalizedAPIPrefix())
 
 	if err := httpServer.Run(ctx, serverCfg.Service.HTTPAddress()); err != nil {

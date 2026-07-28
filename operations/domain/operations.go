@@ -2,7 +2,17 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrDashboardSetupCompleted     = errors.New("dashboard setup completed")
+	ErrInvalidDashboardInput       = errors.New("invalid dashboard input")
+	ErrDashboardPasswordUnchanged  = errors.New("dashboard password unchanged")
+	ErrInvalidDashboardCredentials = errors.New("invalid dashboard credentials")
+	ErrDashboardSessionNotFound    = errors.New("dashboard session not found")
+	ErrDashboardSessionExpired     = errors.New("dashboard session expired")
 )
 
 type Status string
@@ -227,4 +237,32 @@ type DashboardRepository interface {
 	Summary(context.Context, DashboardRange) (DashboardSummary, error)
 	TimeSeries(context.Context, TimeSeriesQuery) ([]TimeSeriesBucket, error)
 	ListProxies(context.Context, DashboardRange) ([]ProxyDashboard, error)
+}
+
+type DashboardUser struct {
+	ID           int64
+	Username     string
+	PasswordHash string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type DashboardSession struct {
+	TokenHash string
+	CSRFHash  string
+	UserID    int64
+	Username  string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type DashboardAuthRepository interface {
+	HasDashboardUser(context.Context) (bool, error)
+	CreateDashboardUser(context.Context, DashboardUser) (DashboardUser, error)
+	FindDashboardUserByID(context.Context, int64) (DashboardUser, bool, error)
+	FindDashboardUserByUsername(context.Context, string) (DashboardUser, bool, error)
+	CreateDashboardSession(context.Context, DashboardSession) error
+	FindDashboardSession(context.Context, string) (DashboardSession, bool, error)
+	DeleteDashboardSession(context.Context, string) error
+	ReplaceDashboardPasswordAndSession(context.Context, int64, string, DashboardSession) error
 }

@@ -187,6 +187,135 @@ VALUES (?, ?, ?, ?)`, transition.ProxyName, transition.Healthy, nullableString(s
 	return wrapWriteError("record proxy health transition", err)
 }
 
+func (s *Store) HasDashboardUser(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM operations_dashboard_users)").Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check dashboard user: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *Store) CreateDashboardUser(ctx context.Context, user operations.DashboardUser) (operations.DashboardUser, error) {
+	result, err := s.db.ExecContext(ctx, `
+INSERT OR IGNORE INTO operations_dashboard_users (id, username, password_hash, created_at, updated_at)
+VALUES (1, ?, ?, ?, ?)`, user.Username, user.PasswordHash, timestamp(user.CreatedAt), timestamp(user.UpdatedAt))
+	if err != nil {
+		return operations.DashboardUser{}, fmt.Errorf("create dashboard user: %w", err)
+	}
+	created, err := result.RowsAffected()
+	if err != nil {
+		return operations.DashboardUser{}, fmt.Errorf("count dashboard user creation: %w", err)
+	}
+	if created == 0 {
+		return operations.DashboardUser{}, operations.ErrDashboardSetupCompleted
+	}
+	user.ID = 1
+	return user, nil
+}
+
+func (s *Store) FindDashboardUserByID(ctx context.Context, id int64) (operations.DashboardUser, bool, error) {
+	return s.findDashboardUser(ctx, "id = ?", id)
+}
+
+func (s *Store) FindDashboardUserByUsername(ctx context.Context, username string) (operations.DashboardUser, bool, error) {
+	return s.findDashboardUser(ctx, "username = ?", username)
+}
+
+func (s *Store) findDashboardUser(ctx context.Context, predicate string, argument any) (operations.DashboardUser, bool, error) {
+	var user operations.DashboardUser
+	var createdAt, updatedAt string
+	err := s.db.QueryRowContext(ctx, "SELECT id, username, password_hash, created_at, updated_at FROM operations_dashboard_users WHERE "+predicate, argument).Scan(&user.ID, &user.Username, &user.PasswordHash, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return operations.DashboardUser{}, false, nil
+	}
+	if err != nil {
+		return operations.DashboardUser{}, false, fmt.Errorf("find dashboard user: %w", err)
+	}
+	var parseErr error
+	user.CreatedAt, parseErr = time.Parse(time.RFC3339Nano, createdAt)
+	if parseErr != nil {
+		return operations.DashboardUser{}, false, fmt.Errorf("parse dashboard user creation: %w", parseErr)
+	}
+	user.UpdatedAt, parseErr = time.Parse(time.RFC3339Nano, updatedAt)
+	if parseErr != nil {
+		return operations.DashboardUser{}, false, fmt.Errorf("parse dashboard user update: %w", parseErr)
+	}
+	return user, true, nil
+}
+
+func (s *Store) CreateDashboardSession(ctx context.Context, session operations.DashboardSession) error {
+	if err := s.deleteExpiredDashboardSessions(ctx, session.CreatedAt); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO operations_dashboard_sessions (token_hash, csrf_hash, user_id, created_at, expires_at)
+VALUES (?, ?, ?, ?, ?)`, session.TokenHash, session.CSRFHash, session.UserID, timestamp(session.CreatedAt), timestamp(session.ExpiresAt))
+	if err != nil {
+		return fmt.Errorf("create dashboard session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) FindDashboardSession(ctx context.Context, tokenHash string) (operations.DashboardSession, bool, error) {
+	var session operations.DashboardSession
+	var createdAt, expiresAt string
+	err := s.db.QueryRowContext(ctx, `
+SELECT s.token_hash, s.csrf_hash, s.user_id, u.username, s.created_at, s.expires_at
+FROM operations_dashboard_sessions s
+JOIN operations_dashboard_users u ON u.id = s.user_id
+WHERE s.token_hash = ?`, tokenHash).Scan(&session.TokenHash, &session.CSRFHash, &session.UserID, &session.Username, &createdAt, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return operations.DashboardSession{}, false, nil
+	}
+	if err != nil {
+		return operations.DashboardSession{}, false, fmt.Errorf("find dashboard session: %w", err)
+	}
+	var parseErr error
+	session.CreatedAt, parseErr = time.Parse(time.RFC3339Nano, createdAt)
+	if parseErr != nil {
+		return operations.DashboardSession{}, false, fmt.Errorf("parse dashboard session creation: %w", parseErr)
+	}
+	session.ExpiresAt, parseErr = time.Parse(time.RFC3339Nano, expiresAt)
+	if parseErr != nil {
+		return operations.DashboardSession{}, false, fmt.Errorf("parse dashboard session expiry: %w", parseErr)
+	}
+	return session, true, nil
+}
+
+func (s *Store) DeleteDashboardSession(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM operations_dashboard_sessions WHERE token_hash = ?", tokenHash)
+	if err != nil {
+		return fmt.Errorf("delete dashboard session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ReplaceDashboardPasswordAndSession(ctx context.Context, userID int64, passwordHash string, session operations.DashboardSession) error {
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("start dashboard password update: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, "UPDATE operations_dashboard_users SET password_hash = ?, updated_at = ? WHERE id = ?", passwordHash, timestamp(session.CreatedAt), userID); err != nil {
+		_ = transaction.Rollback()
+		return fmt.Errorf("update dashboard password: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, "DELETE FROM operations_dashboard_sessions WHERE user_id = ?", userID); err != nil {
+		_ = transaction.Rollback()
+		return fmt.Errorf("revoke dashboard sessions: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `
+INSERT INTO operations_dashboard_sessions (token_hash, csrf_hash, user_id, created_at, expires_at)
+VALUES (?, ?, ?, ?, ?)`, session.TokenHash, session.CSRFHash, userID, timestamp(session.CreatedAt), timestamp(session.ExpiresAt)); err != nil {
+		_ = transaction.Rollback()
+		return fmt.Errorf("create replacement dashboard session: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit dashboard password update: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) ListOperations(ctx context.Context, query operations.OperationQuery) ([]operations.Operation, error) {
 	statement, arguments := operationListQuery(query)
 	rows, err := s.db.QueryContext(ctx, statement, arguments...)
@@ -532,7 +661,18 @@ func (s *Store) initialize(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
 		return err
 	}
-	return migrate(ctx, s.db)
+	if err := migrate(ctx, s.db); err != nil {
+		return err
+	}
+	return s.deleteExpiredDashboardSessions(ctx, time.Now())
+}
+
+func (s *Store) deleteExpiredDashboardSessions(ctx context.Context, cutoff time.Time) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM operations_dashboard_sessions WHERE expires_at <= ?", timestamp(cutoff))
+	if err != nil {
+		return fmt.Errorf("delete expired dashboard sessions: %w", err)
+	}
+	return nil
 }
 
 func databaseSource(path string) string {

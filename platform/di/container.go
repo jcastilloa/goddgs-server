@@ -19,15 +19,33 @@ type Container struct {
 	extractAI      searchHandler.ExtractAIUseCase
 	research       researchHandler.UseCase
 	dashboard      operationsHandler.DashboardUseCase
+	dashboardAuth  operationsHandler.DashboardAuthUseCase
+	cookieSecure   bool
 }
 
-func New(serviceVersion string, searchService searchApplication.Service, extractAI searchHandler.ExtractAIUseCase, research researchHandler.UseCase, dashboard operationsHandler.DashboardUseCase) *Container {
-	return &Container{
+func New(serviceVersion string, searchService searchApplication.Service, extractAI searchHandler.ExtractAIUseCase, research researchHandler.UseCase, dashboard operationsHandler.DashboardUseCase, options ...DashboardAuthOption) *Container {
+	container := &Container{
 		serviceVersion: serviceVersion,
 		searchService:  searchService,
 		extractAI:      extractAI,
 		research:       research,
 		dashboard:      dashboard,
+	}
+	for _, option := range options {
+		option(container)
+	}
+	if container.dashboardAuth == nil {
+		container.dashboardAuth = operationsHandler.EmptyDashboardAuthUseCase{}
+	}
+	return container
+}
+
+type DashboardAuthOption func(*Container)
+
+func WithDashboardAuth(useCase operationsHandler.DashboardAuthUseCase, cookieSecure bool) DashboardAuthOption {
+	return func(container *Container) {
+		container.dashboardAuth = useCase
+		container.cookieSecure = cookieSecure
 	}
 }
 
@@ -46,6 +64,55 @@ func (c *Container) Build() (*di.Container, error) {
 			Scope: di.App,
 			Build: func(di.Container) (interface{}, error) {
 				return operationsHandler.NewDashboard(), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.SetupHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewSetupAccount(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.LoginPageHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewLoginPage(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.SetupPageHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewSetup(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.LoginHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewLogin(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.SessionHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewSession(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.LogoutHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewLogout(c.dashboardAuth, c.cookieSecure), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.PasswordHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewPassword(c.dashboardAuth, c.cookieSecure), nil
 			},
 		},
 		di.Def{

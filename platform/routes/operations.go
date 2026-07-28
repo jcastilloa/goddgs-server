@@ -7,11 +7,19 @@ import (
 	"github.com/sarulabs/di"
 )
 
-func AddOperationsRoutes(group *gin.RouterGroup, container di.Container) {
-	group.GET("", buildEndpoint(container, operationsHandler.DashboardHandlerLabel))
-	group.GET("/api/summary", buildEndpoint(container, operationsHandler.SummaryHandlerLabel))
-	group.GET("/api/timeseries", buildEndpoint(container, operationsHandler.TimeSeriesHandlerLabel))
-	group.GET("/api/operations", buildEndpoint(container, operationsHandler.ListHandlerLabel))
-	group.GET("/api/operations/:id", buildEndpoint(container, operationsHandler.DetailHandlerLabel))
-	group.GET("/api/proxies", buildEndpoint(container, operationsHandler.ProxiesHandlerLabel))
+func AddOperationsRoutes(public, protected *gin.RouterGroup, container di.Container) {
+	public.GET("/setup", buildEndpoint(container, operationsHandler.SetupPageHandlerLabel))
+	public.GET("/login", buildEndpoint(container, operationsHandler.LoginPageHandlerLabel))
+	public.POST("/api/auth/setup", buildEndpoint(container, operationsHandler.SetupHandlerLabel))
+	public.POST("/api/auth/login", buildEndpoint(container, operationsHandler.LoginHandlerLabel))
+
+	protected.GET("", buildEndpoint(container, operationsHandler.DashboardHandlerLabel))
+	protected.GET("/api/summary", buildEndpoint(container, operationsHandler.SummaryHandlerLabel))
+	protected.GET("/api/timeseries", buildEndpoint(container, operationsHandler.TimeSeriesHandlerLabel))
+	protected.GET("/api/operations", buildEndpoint(container, operationsHandler.ListHandlerLabel))
+	protected.GET("/api/operations/:id", buildEndpoint(container, operationsHandler.DetailHandlerLabel))
+	protected.GET("/api/proxies", buildEndpoint(container, operationsHandler.ProxiesHandlerLabel))
+	protected.GET("/api/auth/session", buildEndpoint(container, operationsHandler.SessionHandlerLabel))
+	protected.POST("/api/auth/logout", buildEndpoint(container, operationsHandler.LogoutHandlerLabel))
+	protected.POST("/api/auth/password", buildEndpoint(container, operationsHandler.PasswordHandlerLabel))
 }

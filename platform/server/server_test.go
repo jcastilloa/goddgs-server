@@ -94,16 +94,19 @@ func TestServerAppliesAuthenticationToSearchRoutes(t *testing.T) {
 	}
 }
 
-func TestServerAllowsOperationsDashboardWithoutBearerAndProtectsExistingEndpoints(t *testing.T) {
+func TestServerRequiresDashboardSessionWithoutAffectingBearerEndpoints(t *testing.T) {
 	httpServer, closeContainer := newServer(t, "token", time.Second, &serverGateway{})
 	defer closeContainer()
 
-	for _, path := range []string{"/operations", "/operations/api/summary"} {
-		recorder := httptest.NewRecorder()
-		httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
-		if recorder.Code != http.StatusOK {
-			t.Errorf("GET %s status = %d, want 200; body = %s", path, recorder.Code, recorder.Body.String())
-		}
+	recorder := httptest.NewRecorder()
+	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/operations", nil))
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/operations/setup" {
+		t.Errorf("GET /operations status = %d location = %q, want 303 /operations/setup", recorder.Code, recorder.Header().Get("Location"))
+	}
+	recorder = httptest.NewRecorder()
+	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/operations/api/summary", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("GET /operations/api/summary status = %d, want 401; body = %s", recorder.Code, recorder.Body.String())
 	}
 
 	for _, path := range []string{"/v1/version", "/openapi.json", "/docs/"} {
