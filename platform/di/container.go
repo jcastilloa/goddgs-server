@@ -3,6 +3,7 @@ package di
 import (
 	"fmt"
 
+	operationsHandler "github.com/jcastilloa/goddgs-server/platform/handlers/operations"
 	researchHandler "github.com/jcastilloa/goddgs-server/platform/handlers/research"
 	searchHandler "github.com/jcastilloa/goddgs-server/platform/handlers/search"
 	systemHandler "github.com/jcastilloa/goddgs-server/platform/handlers/system"
@@ -17,24 +18,71 @@ type Container struct {
 	searchService  searchApplication.Service
 	extractAI      searchHandler.ExtractAIUseCase
 	research       researchHandler.UseCase
+	dashboard      operationsHandler.DashboardUseCase
 }
 
-func New(serviceVersion string, searchService searchApplication.Service, extractAI searchHandler.ExtractAIUseCase, research researchHandler.UseCase) *Container {
+func New(serviceVersion string, searchService searchApplication.Service, extractAI searchHandler.ExtractAIUseCase, research researchHandler.UseCase, dashboard operationsHandler.DashboardUseCase) *Container {
 	return &Container{
 		serviceVersion: serviceVersion,
 		searchService:  searchService,
 		extractAI:      extractAI,
 		research:       research,
+		dashboard:      dashboard,
 	}
 }
 
 func (c *Container) Build() (*di.Container, error) {
+	if c.dashboard == nil {
+		return nil, fmt.Errorf("dashboard use case is required")
+	}
 	builder, err := di.NewBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("create builder: %w", err)
 	}
 
 	err = builder.Add(
+		di.Def{
+			Name:  operationsHandler.DashboardHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewDashboard(), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.SummaryHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewSummary(c.dashboard), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.TimeSeriesHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewTimeSeries(c.dashboard), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.ListHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewList(c.dashboard), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.DetailHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewDetail(c.dashboard), nil
+			},
+		},
+		di.Def{
+			Name:  operationsHandler.ProxiesHandlerLabel,
+			Scope: di.App,
+			Build: func(di.Container) (interface{}, error) {
+				return operationsHandler.NewProxies(c.dashboard), nil
+			},
+		},
 		di.Def{
 			Name:  searchHandler.GetTextHandlerLabel,
 			Scope: di.App,

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jcastilloa/goddgs-server/shared/buildinfo"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
@@ -48,6 +49,17 @@ research:
     timeout: 55s
     temperature: 0.3
     retries: 3
+
+operations:
+  database_path: /var/lib/goddgs/operations.sqlite
+  retention: 48h
+  probe:
+    enabled: true
+    url: https://status.example.com/probe
+    interval: 2m
+    timeout: 7s
+    success_threshold: 2
+    failure_threshold: 3
 
 proxies:
   - name: direct-eu
@@ -95,6 +107,12 @@ proxies:
 	if got.Research.Timeout.String() != "8m0s" || got.Research.MaxConcurrentExtractions != 20 || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
 		t.Errorf("Research = %#v", got.Research)
 	}
+	if got.Operations.DatabasePath != "/var/lib/goddgs/operations.sqlite" || got.Operations.Retention != 48*time.Hour {
+		t.Errorf("Operations = %#v", got.Operations)
+	}
+	if probe := got.Operations.Probe; !probe.Enabled || probe.URL != "https://status.example.com/probe" || probe.Interval != 2*time.Minute || probe.Timeout != 7*time.Second || probe.SuccessThreshold != 2 || probe.FailureThreshold != 3 {
+		t.Errorf("Operations.Probe = %#v", probe)
+	}
 	if len(got.Proxies) != 2 {
 		t.Fatalf("Proxies length = %d, want 2", len(got.Proxies))
 	}
@@ -119,6 +137,31 @@ proxies:
 	proxies := repository.ServerConfig().Proxies
 	if len(proxies) != 1 || proxies[0].URL != "" {
 		t.Errorf("Proxies = %#v, want one direct connection without proxy URL", proxies)
+	}
+}
+
+func TestNewFromFileDefaultsAndValidatesOperationsConfiguration(t *testing.T) {
+	repository, err := NewFromFile(writeConfig(t, `
+proxies:
+  - name: local
+    type: direct
+`))
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+	if got := repository.ServerConfig().Operations; got.DatabasePath != "" || got.Retention != configDomain.DefaultOperationsRetention {
+		t.Errorf("Operations = %#v", got)
+	}
+
+	_, err = NewFromFile(writeConfig(t, `
+operations:
+  retention: -1h
+proxies:
+  - name: local
+    type: direct
+`))
+	if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
+		t.Errorf("NewFromFile() error = %v, want ErrInvalidConfiguration", err)
 	}
 }
 

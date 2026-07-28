@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
 	sshTunnel "github.com/jcastilloa/goddgs-server/platform/proxy/ssh"
 	proxyApplication "github.com/jcastilloa/goddgs-server/proxy/application"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
@@ -32,11 +33,31 @@ type GatewayBuilder struct {
 }
 
 type ManagedGateway struct {
-	Gateway *Gateway
-	tunnels []tunnelHandle
+	Gateway            *Gateway
+	tunnels            []tunnelHandle
+	targets            []operationsApplication.ProbeTarget
+	reportTunnelHealth func(string, bool, uint64)
 
 	mu     sync.Mutex
-	health map[string]bool
+	health map[string]tunnelHealth
+}
+
+type tunnelHealth struct {
+	connected bool
+	version   uint64
+}
+
+const torBrowserProxyURL = "socks5h://127.0.0.1:9150"
+
+type HealthProbeConfig struct {
+	Interval         time.Duration
+	URL              string
+	SuccessThreshold int
+	FailureThreshold int
+	Store            operationsApplication.ProbeStore
+	Prober           operationsApplication.ProbeClient
+	Now              func() time.Time
+	ReportError      func(error)
 }
 
 func NewGatewayBuilder() GatewayBuilder {
@@ -54,7 +75,7 @@ func NewGatewayBuilder() GatewayBuilder {
 	}
 }
 
-func (b GatewayBuilder) Build(ctx context.Context, config configDomain.ServerConfig) (*ManagedGateway, error) {
+func (b GatewayBuilder) Build(ctx context.Context, config configDomain.ServerConfig, recorders ...operationsApplication.EventRecorder) (*ManagedGateway, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -63,20 +84,21 @@ func (b GatewayBuilder) Build(ctx context.Context, config configDomain.ServerCon
 	}
 
 	entries := make([]proxyApplication.Entry[Client], 0, len(config.Proxies))
-	managed := &ManagedGateway{health: make(map[string]bool)}
+	managed := &ManagedGateway{health: make(map[string]tunnelHealth)}
 	for _, proxy := range config.Proxies {
-		entry, tunnel, err := b.entry(ctx, proxy, config.RequestTimeout, managed)
+		entry, target, tunnel, err := b.entry(ctx, proxy, config.RequestTimeout, managed)
 		if err != nil {
 			_ = managed.Close()
 			return nil, err
 		}
 		entries = append(entries, entry)
+		managed.targets = append(managed.targets, target)
 		if tunnel != nil {
 			managed.tunnels = append(managed.tunnels, tunnel)
 		}
 	}
 
-	gateway, err := NewGateway(entries, config.MaxProxyRetries)
+	gateway, err := NewGateway(entries, config.MaxProxyRetries, recorders...)
 	if err != nil {
 		_ = managed.Close()
 		return nil, err
@@ -85,13 +107,13 @@ func (b GatewayBuilder) Build(ctx context.Context, config configDomain.ServerCon
 	return managed, nil
 }
 
-func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfig, timeout time.Duration, managed *ManagedGateway) (proxyApplication.Entry[Client], tunnelHandle, error) {
+func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfig, timeout time.Duration, managed *ManagedGateway) (proxyApplication.Entry[Client], operationsApplication.ProbeTarget, tunnelHandle, error) {
 	switch strings.ToLower(proxy.Type) {
 	case "direct":
-		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(proxy.URL, timeout)}, nil, nil
+		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(proxy.URL, timeout)}, operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: effectiveTransportURL(proxy.URL)}, nil, nil
 	case "ssh":
 		if b.startTunnel == nil {
-			return proxyApplication.Entry[Client]{}, nil, errors.New("SSH tunnel factory is unavailable")
+			return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, errors.New("SSH tunnel factory is unavailable")
 		}
 		managed.reportHealth(proxy.Name, false)
 		tunnel, err := b.startTunnel(ctx, sshTunnelConfig{
@@ -102,12 +124,20 @@ func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfi
 			HostKey:        proxy.HostKey,
 		}, func(healthy bool) { managed.reportHealth(proxy.Name, healthy) })
 		if err != nil {
-			return proxyApplication.Entry[Client]{}, nil, fmt.Errorf("start SSH tunnel %q: %w", proxy.Name, err)
+			return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("start SSH tunnel %q: %w", proxy.Name, err)
 		}
-		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(tunnel.ProxyURL(), timeout)}, tunnel, nil
+		transportURL := tunnel.ProxyURL()
+		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(transportURL, timeout)}, operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: transportURL, Tunnel: true}, tunnel, nil
 	default:
-		return proxyApplication.Entry[Client]{}, nil, fmt.Errorf("unsupported proxy type %q", proxy.Type)
+		return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("unsupported proxy type %q", proxy.Type)
 	}
+}
+
+func effectiveTransportURL(configuredURL string) string {
+	if strings.EqualFold(strings.TrimSpace(configuredURL), "tb") {
+		return torBrowserProxyURL
+	}
+	return configuredURL
 }
 
 func (g *ManagedGateway) setGateway(gateway *Gateway) {
@@ -115,17 +145,72 @@ func (g *ManagedGateway) setGateway(gateway *Gateway) {
 	defer g.mu.Unlock()
 
 	g.Gateway = gateway
-	for key, healthy := range g.health {
-		g.setGatewayHealth(key, healthy)
+	for key, health := range g.health {
+		g.setGatewayHealth(key, health.connected)
 	}
 }
 
 func (g *ManagedGateway) reportHealth(key string, healthy bool) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	health := g.health[key]
+	health.connected = healthy
+	health.version++
+	g.health[key] = health
+	reporter := g.reportTunnelHealth
+	if reporter == nil {
+		g.setGatewayHealth(key, healthy)
+	}
+	g.mu.Unlock()
 
-	g.health[key] = healthy
-	g.setGatewayHealth(key, healthy)
+	if reporter != nil {
+		reporter(key, healthy, health.version)
+	}
+}
+
+func (g *ManagedGateway) StartHealthProbes(ctx context.Context, config HealthProbeConfig) *operationsApplication.HealthSupervisor {
+	targets := g.probeTargets()
+	monitor := operationsApplication.NewHealthMonitor(targets, operationsApplication.HealthMonitorConfig{
+		SuccessThreshold: config.SuccessThreshold,
+		FailureThreshold: config.FailureThreshold,
+	}, g.Gateway, config.Store, config.Now)
+	g.setTunnelHealthReporter(func(name string, connected bool, version uint64) {
+		if err := monitor.UpdateTunnelConnection(ctx, name, connected, version); err != nil && config.ReportError != nil {
+			config.ReportError(err)
+		}
+	})
+	return operationsApplication.StartHealthSupervisor(ctx, operationsApplication.HealthSupervisorConfig{
+		Interval:    config.Interval,
+		ProbeURL:    config.URL,
+		Targets:     targets,
+		Prober:      config.Prober,
+		Monitor:     monitor,
+		ReportError: config.ReportError,
+	})
+}
+
+func (g *ManagedGateway) probeTargets() []operationsApplication.ProbeTarget {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	targets := make([]operationsApplication.ProbeTarget, len(g.targets))
+	copy(targets, g.targets)
+	return targets
+}
+
+func (g *ManagedGateway) setTunnelHealthReporter(report func(string, bool, uint64)) {
+	g.mu.Lock()
+	g.reportTunnelHealth = report
+	reports := make(map[string]tunnelHealth, len(g.health))
+	for key, health := range g.health {
+		reports[key] = health
+	}
+	g.mu.Unlock()
+
+	if report == nil {
+		return
+	}
+	for key, health := range reports {
+		report(key, health.connected, health.version)
+	}
 }
 
 func (g *ManagedGateway) setGatewayHealth(key string, healthy bool) {

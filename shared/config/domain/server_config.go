@@ -16,6 +16,7 @@ type ServerConfig struct {
 	LLM             LLMConfig
 	ExtractAI       ExtractAIConfig
 	Research        ResearchConfig
+	Operations      OperationsConfig
 }
 
 type ProxyConfig struct {
@@ -30,6 +31,13 @@ type ProxyConfig struct {
 }
 
 func (c ServerConfig) Validate() error {
+	if c.Operations.Retention != 0 {
+		if err := c.Operations.Validate(); err != nil {
+			return err
+		}
+	} else if err := c.Operations.Probe.Validate(); err != nil {
+		return err
+	}
 	if len(c.Proxies) == 0 {
 		return fmt.Errorf("%w: at least one proxy is required", ErrInvalidConfiguration)
 	}

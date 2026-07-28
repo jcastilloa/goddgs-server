@@ -82,6 +82,10 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 	if researchTimeout <= 0 {
 		researchTimeout = 10 * time.Minute
 	}
+	operationsRetention := r.v.GetDuration("operations.retention")
+	if operationsRetention == 0 {
+		operationsRetention = configDomain.DefaultOperationsRetention
+	}
 
 	return configDomain.ServerConfig{
 		Service:         r.ServiceConfig(),
@@ -114,6 +118,18 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 				Timeout:     r.v.GetDuration("research.report_ai.timeout"),
 				Temperature: r.v.GetFloat64("research.report_ai.temperature"),
 				Retries:     r.v.GetInt("research.report_ai.retries"),
+			},
+		},
+		Operations: configDomain.OperationsConfig{
+			DatabasePath: r.v.GetString("operations.database_path"),
+			Retention:    operationsRetention,
+			Probe: configDomain.ProbeConfig{
+				Enabled:          r.v.GetBool("operations.probe.enabled"),
+				URL:              r.v.GetString("operations.probe.url"),
+				Interval:         r.v.GetDuration("operations.probe.interval"),
+				Timeout:          r.v.GetDuration("operations.probe.timeout"),
+				SuccessThreshold: r.v.GetInt("operations.probe.success_threshold"),
+				FailureThreshold: r.v.GetInt("operations.probe.failure_threshold"),
 			},
 		},
 	}

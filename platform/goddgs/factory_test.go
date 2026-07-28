@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
 	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
 )
 
@@ -81,6 +82,47 @@ func TestGatewayBuilderCreatesStableClientForSSHTunnelAndTracksHealth(t *testing
 	}
 }
 
+func TestGatewayBuilderKeepsEffectiveProbeTransportAndForwardsTunnelSignals(t *testing.T) {
+	createdProxies := []string{}
+	builder := newTestBuilder(&createdProxies)
+	tunnel := &fakeTunnel{proxyURL: "socks5h://127.0.0.1:38123"}
+	builder.startTunnel = func(_ context.Context, _ sshTunnelConfig, report func(bool)) (tunnelHandle, error) {
+		tunnel.report = report
+		return tunnel, nil
+	}
+	managed, err := builder.Build(context.Background(), configDomain.ServerConfig{
+		Proxies: []configDomain.ProxyConfig{
+			{Name: "direct", Type: "direct", URL: "http://proxy.example.com:8080"},
+			{Name: "tor-browser", Type: "direct", URL: "tb"},
+			{Name: "tunnel", Type: "ssh", Host: "proxy.example.com", User: "deploy", PrivateKeyPath: "/key", HostKey: "ssh-ed25519 key"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	defer managed.Close()
+
+	if got, want := managed.probeTargets(), []operationsApplication.ProbeTarget{
+		{Name: "direct", TransportURL: "http://proxy.example.com:8080"},
+		{Name: "tor-browser", TransportURL: "socks5h://127.0.0.1:9150"},
+		{Name: "tunnel", TransportURL: tunnel.proxyURL, Tunnel: true},
+	}; !equalProbeTargets(got, want) {
+		t.Errorf("probe targets = %#v, want %#v", got, want)
+	}
+
+	var reports []bool
+	managed.setTunnelHealthReporter(func(name string, connected bool, _ uint64) {
+		if name != "tunnel" {
+			t.Errorf("tunnel name = %q, want tunnel", name)
+		}
+		reports = append(reports, connected)
+	})
+	tunnel.report(true)
+	if got, want := reports, []bool{false, true}; !equalBools(got, want) {
+		t.Errorf("tunnel reports = %#v, want %#v", got, want)
+	}
+}
+
 type fakeTunnel struct {
 	proxyURL string
 	report   func(bool)
@@ -106,6 +148,30 @@ func newTestBuilder(createdProxies *[]string) *GatewayBuilder {
 }
 
 func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalProbeTargets(got, want []operationsApplication.ProbeTarget) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalBools(got, want []bool) bool {
 	if len(got) != len(want) {
 		return false
 	}

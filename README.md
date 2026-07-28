@@ -22,6 +22,8 @@ HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs). It keeps on
   - [Existing direct proxy](#existing-direct-proxy)
   - [SSH tunnel](#ssh-tunnel)
   - [Mixed rotating pool](#mixed-rotating-pool)
+- [Operational storage](#operational-storage)
+- [Operations dashboard](#operations-dashboard)
 - [Verification](#verification)
 
 ## Run
@@ -89,6 +91,61 @@ Installer environment variables:
 | `VERSION` | Latest GitHub Release tag |
 
 GitHub publishes these artifacts automatically whenever a `v*` tag is pushed. The tag is embedded in the binary and used by `GET /v1/version` unless `service.version` overrides it in configuration.
+
+## Operational storage
+
+The server requires a local SQLite database for operational records. Unless overridden, it creates `operations.sqlite` beside the executable before opening the HTTP listener. SQLite may also create adjacent `operations.sqlite-wal` and `operations.sqlite-shm` files while the server runs; keep all three files together.
+
+The executable directory must be writable. If it is read-only (for example, a system install directory), configure an explicit writable database path with `operations.database_path` or `OPERATIONS_DATABASE_PATH`. Relative paths are resolved from the process working directory; use an absolute path for deployments.
+
+```yaml
+operations:
+  # Empty uses operations.sqlite beside the resolved executable.
+  database_path: /var/lib/goddgs-server/operations.sqlite
+  # Completed records and proxy health data are kept for 30 days by default.
+  retention: 720h
+```
+
+The store uses SQLite WAL mode, foreign keys, bounded lock waits, transactional migrations, and hourly retention cleanup. Initialization or cleanup failures stop startup rather than running without persistent operational data.
+
+### Proxy health probes
+
+Active proxy probes are disabled by default so deployments never send unexpected outbound traffic. To enable them, configure an explicit, stable HTTP(S) URL owned or selected by the operator. Each configured proxy, including an SSH-backed proxy through its local SOCKS tunnel, sends a minimal `GET` request to this URL at the configured interval. Redirects (2xx/3xx) are successful; 4xx, 5xx, transport errors, and timeouts are failures. Redirects are not followed.
+
+```yaml
+operations:
+  probe:
+    enabled: true
+    url: https://status.example.net/proxy-probe
+    interval: 1m
+    timeout: 10s
+    success_threshold: 2
+    failure_threshold: 3
+```
+
+Every round records timestamp, latency, HTTP status when available, outcome, and error category in SQLite. Proxies begin in `unknown`; consecutive successes promote them to `healthy`, a failure below the configured failure threshold makes them `degraded`, and the threshold makes them `unhealthy`. `healthy` and `degraded` proxies remain eligible for the pool. Each status change is persisted once. An SSH tunnel disconnection immediately makes its proxy `unhealthy`; after reconnect it returns to `unknown` and remains unavailable until the configured number of successful probes confirms recovery.
+
+## Operations dashboard
+
+`GET /operations` serves an embedded dashboard from the same process and HTTP address as the API. It reads the SQLite operational store and refreshes every five seconds without reloading the page. The dashboard uses Tailwind CSS and Chart.js directly from their CDNs: no Node.js, npm, bundled assets, or frontend build step is required.
+
+![Operations dashboard](assets/operations-dashboard.png)
+
+It displays active, successful, and failed operations; p50/p95 latency; volume and latency charts; recent operations with expandable sanitized detail; and proxy health, availability history, and latency when probe records exist. Use the 24-hour, 7-day, or 30-day selector. Empty operation data produces empty states; the proxy section is hidden when no proxy probe results are available.
+
+The read-only JSON API is public in this phase and is documented in `/openapi.json`:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/operations/api/summary` | Counts and p50/p95 latency for a range. |
+| `/operations/api/timeseries` | Success/error volume and p50/p95 buckets. |
+| `/operations/api/operations` | Sanitized, paginated operation list. |
+| `/operations/api/operations/{id}` | Sanitized operation, steps, and errors. |
+| `/operations/api/proxies` | Probe-based proxy state, latency, and history. |
+
+The summary, series, list, and proxy endpoints accept `range=24h`, `range=7d`, or `range=30d` (default `24h`), or an explicit `from` and `to` RFC3339 pair no wider than 30 days. The operation-detail endpoint accepts only its path `id`. The list accepts `status`, `type`, `limit` (1–100, default 50), and `offset` (0–10000). The series accepts `interval=1h`, `6h`, or `24h`, with a safe default selected from the range. Invalid dates, ranges, filters, intervals, limits, or IDs return `400`; a missing operation returns `404`; storage failures return `500`.
+
+`auth.token` continues to protect the versioned API, `/openapi.json`, and `/docs/`, but intentionally does **not** protect `/operations` or `/operations/api/*` yet. Bind the service to a trusted network or put this route behind a reverse proxy until the planned dashboard-specific user, password, and session authentication is introduced. The dashboard only exposes the already-sanitized operational data, never request bodies, provider responses, prompts, credentials, or unredacted URLs.
 
 ## API
 
@@ -272,11 +329,13 @@ The query and report models each use their own model, temperature, timeout, and 
 
 ### Authentication
 
-If `auth.token` is not empty, every route requires:
+If `auth.token` is not empty, every versioned API route plus `/openapi.json` and `/docs/` requires:
 
 ```text
 Authorization: Bearer <token>
 ```
+
+`/operations` and `/operations/api/*` are intentionally excluded until dashboard-specific authentication is added; see [Operations dashboard](#operations-dashboard).
 
 ## Proxies
 

@@ -8,8 +8,8 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func (s *Server) registerDocumentation(apiPrefix, version string, requiresAuthentication bool) {
-	s.engine.GET("/openapi.json", func(context *gin.Context) {
+func (s *Server) registerDocumentation(group *gin.RouterGroup, apiPrefix, version string, requiresAuthentication bool) {
+	group.GET("/openapi.json", func(context *gin.Context) {
 		context.JSON(http.StatusOK, openAPISpecification(apiPrefix, version, requiresAuthentication))
 	})
 	swaggerHandler := ginSwagger.WrapHandler(
@@ -17,7 +17,7 @@ func (s *Server) registerDocumentation(apiPrefix, version string, requiresAuthen
 		ginSwagger.URL("/openapi.json"),
 		ginSwagger.PersistAuthorization(true),
 	)
-	s.engine.GET("/docs/*any", func(context *gin.Context) {
+	group.GET("/docs/*any", func(context *gin.Context) {
 		if context.Param("any") == "/" {
 			context.Request.URL.Path = "/docs/index.html"
 			context.Request.RequestURI = "/docs/index.html"
@@ -42,6 +42,7 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 			{"name": "Search", "description": "goddgs metasearch endpoints."},
 			{"name": "Extraction", "description": "Page-content extraction endpoints."},
 			{"name": "Research", "description": "Multi-source evidence-based web research."},
+			{"name": "Operations", "description": "Unauthenticated operational dashboard and its read-only data API."},
 		},
 		"paths": gin.H{
 			apiPrefix + "/version": versionPath(),
@@ -61,7 +62,13 @@ func openAPISpecification(apiPrefix, version string, requiresAuthentication bool
 				},
 				"responses": extractResponses(),
 			}},
-			apiPrefix + "/research": researchPath(),
+			apiPrefix + "/research":           researchPath(),
+			"/operations":                     operationsDashboardPath(),
+			"/operations/api/summary":         operationsSummaryPath(),
+			"/operations/api/timeseries":      operationsTimeSeriesPath(),
+			"/operations/api/operations":      operationsListPath(),
+			"/operations/api/operations/{id}": operationsDetailPath(),
+			"/operations/api/proxies":         operationsProxiesPath(),
 		},
 		"components": gin.H{
 			"securitySchemes": gin.H{

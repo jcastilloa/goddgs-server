@@ -29,8 +29,8 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 		t.Errorf("info = %#v, want configured version", specification["info"])
 	}
 	paths, ok := specification["paths"].(map[string]any)
-	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil || paths["/v1/research"] == nil {
-		t.Errorf("paths = %#v, want /v1/text, /v1/extract, and /v1/research", specification["paths"])
+	if !ok || paths["/v1/text"] == nil || paths["/v1/extract"] == nil || paths["/v1/research"] == nil || paths["/operations"] == nil || paths["/operations/api/summary"] == nil || paths["/operations/api/timeseries"] == nil || paths["/operations/api/operations"] == nil || paths["/operations/api/operations/{id}"] == nil || paths["/operations/api/proxies"] == nil {
+		t.Errorf("paths = %#v, want versioned API and operations dashboard paths", specification["paths"])
 	}
 	if paths["/v1/hello"] != nil {
 		t.Errorf("paths = %#v, must not expose removed /v1/hello endpoint", paths)
@@ -61,6 +61,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	assertDetailedDocumentation(t, paths)
 	assertResearchDocumentation(t, paths)
+	assertOperationsDocumentation(t, paths)
 
 	recorder = httptest.NewRecorder()
 	httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/", nil))
@@ -76,6 +77,45 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Errorf("Swagger CSS status = %d, want 200", recorder.Code)
 	}
+}
+
+func assertOperationsDocumentation(t *testing.T, paths map[string]any) {
+	t.Helper()
+	dashboard := documentedGetOperation(t, paths, "/operations")
+	if !hasEmptySecurity(dashboard) || dashboard["responses"].(map[string]any)["200"] == nil {
+		t.Errorf("dashboard operation = %#v, want public HTML contract", dashboard)
+	}
+	for _, path := range []string{"/operations/api/summary", "/operations/api/timeseries", "/operations/api/operations", "/operations/api/operations/{id}", "/operations/api/proxies"} {
+		operation := documentedGetOperation(t, paths, path)
+		if !hasEmptySecurity(operation) || operation["description"] == "" {
+			t.Errorf("%s operation = %#v, want explicit public security and description", path, operation)
+		}
+		responses := operation["responses"].(map[string]any)
+		for _, status := range []string{"200", "400", "500"} {
+			if responses[status] == nil || responses[status].(map[string]any)["content"] == nil {
+				t.Errorf("%s responses = %#v, missing %s", path, responses, status)
+			}
+		}
+	}
+	operations := documentedGetOperation(t, paths, "/operations/api/operations")
+	for _, parameter := range []string{"range", "from", "to", "status", "type", "limit", "offset"} {
+		if !hasParameter(operations, parameter) {
+			t.Errorf("operations parameters = %#v, want %s", operations["parameters"], parameter)
+		}
+	}
+	timeseries := documentedGetOperation(t, paths, "/operations/api/timeseries")
+	if !hasParameter(timeseries, "interval") {
+		t.Errorf("time series parameters = %#v, want interval", timeseries["parameters"])
+	}
+	detail := documentedGetOperation(t, paths, "/operations/api/operations/{id}")
+	if detail["responses"].(map[string]any)["404"] == nil {
+		t.Errorf("detail responses = %#v, want 404", detail["responses"])
+	}
+}
+
+func hasEmptySecurity(operation map[string]any) bool {
+	security, ok := operation["security"].([]any)
+	return ok && len(security) == 0
 }
 
 func assertResearchDocumentation(t *testing.T, paths map[string]any) {

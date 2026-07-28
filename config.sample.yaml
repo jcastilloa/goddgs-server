@@ -33,6 +33,22 @@ research:
     temperature: 0.1
     retries: 2
 
+operations:
+  # Optional absolute or relative SQLite database path. By default it is
+  # operations.sqlite beside the executable.
+  database_path: ""
+  # How long completed operational records are kept.
+  retention: 720h
+  # Disabled by default: active probes generate outbound traffic.
+  probe:
+    enabled: false
+    # Required when enabled. It must be a stable HTTP(S) endpoint controlled by the operator.
+    url: ""
+    interval: 1m
+    timeout: 10s
+    success_threshold: 2
+    failure_threshold: 3
+
 proxies:
   - name: direct
     type: direct

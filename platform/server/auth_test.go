@@ -48,6 +48,28 @@ func TestAuthenticationAcceptsOnlyMatchingBearerToken(t *testing.T) {
 	}
 }
 
+func TestSelectiveAuthenticationLeavesOperationsUnprotected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(selectiveAuthentication("server-secret", "/v2"))
+	engine.GET("/operations", func(context *gin.Context) { context.Status(http.StatusOK) })
+	engine.GET("/v2/version", func(context *gin.Context) { context.Status(http.StatusOK) })
+
+	for _, testCase := range []struct {
+		path string
+		want int
+	}{
+		{path: "/operations", want: http.StatusOK},
+		{path: "/v2/version", want: http.StatusUnauthorized},
+	} {
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, testCase.path, nil))
+		if recorder.Code != testCase.want {
+			t.Errorf("GET %s status = %d, want %d", testCase.path, recorder.Code, testCase.want)
+		}
+	}
+}
+
 func authenticatedEngine(token string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

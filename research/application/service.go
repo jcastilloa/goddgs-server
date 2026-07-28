@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	operations "github.com/jcastilloa/goddgs-server/operations/domain"
 	"github.com/jcastilloa/goddgs-server/research/domain"
 	searchDomain "github.com/jcastilloa/goddgs-server/search/domain"
 	extractAIDomain "github.com/jcastilloa/goddgs-server/shared/extractai/domain"
@@ -28,6 +29,11 @@ type Extractor interface {
 
 type Reporter interface {
 	Write(context.Context, ReportRequest) (Report, error)
+}
+
+type StepRecorder interface {
+	StartStep(context.Context, operations.StepStart) (operations.Step, error)
+	FinishStep(context.Context, operations.Step, error) error
 }
 
 type ReportSource struct {
@@ -53,11 +59,23 @@ type Service struct {
 	searcher                 Searcher
 	extractor                Extractor
 	reporter                 Reporter
+	recorder                 StepRecorder
 	maxConcurrentExtractions int
 }
 
-func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter, maxConcurrentExtractions int) Service {
-	return Service{planner: planner, searcher: searcher, extractor: extractor, reporter: reporter, maxConcurrentExtractions: maxConcurrentExtractions}
+func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter, maxConcurrentExtractions int, recorders ...StepRecorder) Service {
+	var recorder StepRecorder
+	if len(recorders) > 0 {
+		recorder = recorders[0]
+	}
+	return Service{
+		planner:                  planner,
+		searcher:                 searcher,
+		extractor:                extractor,
+		reporter:                 reporter,
+		recorder:                 recorder,
+		maxConcurrentExtractions: maxConcurrentExtractions,
+	}
 }
 
 func (s Service) Research(ctx context.Context, request domain.Request) (domain.Result, error) {
@@ -74,7 +92,9 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 
 	startedAt := time.Now()
 	planningStartedAt := time.Now()
-	queries, err := s.planner.Plan(ctx, normalized)
+	queries, err := recordPhase(ctx, s.recorder, operations.StepResearchPlanning, map[string]string{"query": normalized.Query}, func() ([]domain.GeneratedQuery, error) {
+		return s.planner.Plan(ctx, normalized)
+	})
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("generate research queries: %w", err)
 	}
@@ -97,7 +117,7 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 		return domain.Result{}, domain.ErrNoUsableSources
 	}
 	reportStartedAt := time.Now()
-	report, err := s.reporter.Write(ctx, ReportRequest{Query: normalized.Query, Language: normalized.ReportLanguage, Sources: sources})
+	report, err := s.recordReport(ctx, normalized, sources)
 	if err != nil {
 		return domain.Result{}, fmt.Errorf("write research report: %w", err)
 	}
@@ -145,7 +165,9 @@ func validateQueries(request domain.NormalizedRequest, queries []domain.Generate
 }
 
 func (s Service) extractedSources(ctx context.Context, urls []candidateSource) []ReportSource {
-	extracted := s.extractAll(ctx, urls)
+	extracted, _ := recordPhase(ctx, s.recorder, operations.StepResearchExtract, map[string]string{"candidate_count": fmt.Sprintf("%d", len(urls))}, func() ([]*ReportSource, error) {
+		return s.extractAll(ctx, urls), nil
+	})
 	sources := make([]ReportSource, 0, len(urls))
 	seenFinalURLs := make(map[string]struct{}, len(urls))
 	for _, source := range extracted {
@@ -222,47 +244,72 @@ func (s Service) extractSource(ctx context.Context, candidate candidateSource) *
 }
 
 func (s Service) searchURLs(ctx context.Context, request domain.NormalizedRequest, queries []domain.GeneratedQuery, diagnostics *researchDiagnostics) []candidateSource {
-	urls := make([]candidateSource, 0, request.QueryCount*request.ResultsPerQuery)
-	seenURLs := make(map[string]struct{}, cap(urls))
-	for _, query := range queries {
-		if ctx.Err() != nil {
-			return urls
-		}
-		region, err := request.RegionFor(query.Language)
-		if err != nil {
-			return urls
-		}
-		maxResults := request.ResultsPerQuery
-		results, err := s.searcher.Search(ctx, searchDomain.SearchRequest{
-			Category:   searchDomain.CategoryText,
-			Query:      query.Query,
-			Region:     region,
-			MaxResults: &maxResults,
-			Diagnostics: &searchDomain.SearchDiagnostics{
-				OnComplete: diagnostics.record,
-			},
-		})
-		if err != nil {
-			continue
-		}
-		accepted := 0
-		for _, result := range results {
-			if accepted >= request.ResultsPerQuery {
-				break
+	urls, _ := recordPhase(ctx, s.recorder, operations.StepResearchSearch, map[string]string{"query_count": fmt.Sprintf("%d", len(queries))}, func() ([]candidateSource, error) {
+		urls := make([]candidateSource, 0, request.QueryCount*request.ResultsPerQuery)
+		seenURLs := make(map[string]struct{}, cap(urls))
+		for _, query := range queries {
+			if ctx.Err() != nil {
+				return urls, nil
 			}
-			candidate, ok := sourceFromResult(result)
-			if !ok {
+			region, err := request.RegionFor(query.Language)
+			if err != nil {
+				return urls, nil
+			}
+			maxResults := request.ResultsPerQuery
+			results, err := s.searcher.Search(ctx, searchDomain.SearchRequest{
+				Category:   searchDomain.CategoryText,
+				Query:      query.Query,
+				Region:     region,
+				MaxResults: &maxResults,
+				Diagnostics: &searchDomain.SearchDiagnostics{
+					OnComplete: diagnostics.record,
+				},
+			})
+			if err != nil {
 				continue
 			}
-			if _, exists := seenURLs[candidate.URL]; exists {
-				continue
+			accepted := 0
+			for _, result := range results {
+				if accepted >= request.ResultsPerQuery {
+					break
+				}
+				candidate, ok := sourceFromResult(result)
+				if !ok {
+					continue
+				}
+				if _, exists := seenURLs[candidate.URL]; exists {
+					continue
+				}
+				seenURLs[candidate.URL] = struct{}{}
+				urls = append(urls, candidate)
+				accepted++
 			}
-			seenURLs[candidate.URL] = struct{}{}
-			urls = append(urls, candidate)
-			accepted++
 		}
-	}
+		return urls, nil
+	})
 	return urls
+}
+
+func (s Service) recordReport(ctx context.Context, request domain.NormalizedRequest, sources []ReportSource) (Report, error) {
+	return recordPhase(ctx, s.recorder, operations.StepResearchReport, map[string]string{
+		"query":        request.Query,
+		"source_count": fmt.Sprintf("%d", len(sources)),
+	}, func() (Report, error) {
+		return s.reporter.Write(ctx, ReportRequest{Query: request.Query, Language: request.ReportLanguage, Sources: sources})
+	})
+}
+
+func recordPhase[T any](ctx context.Context, recorder StepRecorder, stepType operations.StepType, metadata map[string]string, run func() (T, error)) (T, error) {
+	var zero T
+	if recorder == nil {
+		return run()
+	}
+	step, _ := recorder.StartStep(ctx, operations.StepStart{Type: stepType, Metadata: metadata})
+	result, err := run()
+	if finishErr := recorder.FinishStep(ctx, step, err); finishErr != nil && err == nil {
+		return zero, finishErr
+	}
+	return result, err
 }
 
 type researchDiagnostics struct {

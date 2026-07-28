@@ -1,0 +1,230 @@
+package domain
+
+import (
+	"context"
+	"time"
+)
+
+type Status string
+
+const (
+	StatusRunning   Status = "running"
+	StatusSucceeded Status = "succeeded"
+	StatusFailed    Status = "failed"
+)
+
+type Result string
+
+const (
+	ResultSucceeded Result = "succeeded"
+	ResultFailed    Result = "failed"
+	ResultCanceled  Result = "canceled"
+	ResultTimeout   Result = "timeout"
+)
+
+type ProxyHealth string
+
+const (
+	ProxyHealthUnknown   ProxyHealth = "unknown"
+	ProxyHealthHealthy   ProxyHealth = "healthy"
+	ProxyHealthDegraded  ProxyHealth = "degraded"
+	ProxyHealthUnhealthy ProxyHealth = "unhealthy"
+)
+
+type OperationType string
+
+const (
+	OperationSearch   OperationType = "search"
+	OperationExtract  OperationType = "extract"
+	OperationResearch OperationType = "research"
+)
+
+type StepType string
+
+const (
+	StepSearch           StepType = "search"
+	StepExtractHeuristic StepType = "extract_heuristic"
+	StepExtractAI        StepType = "extract_ai"
+	StepLLMPlanning      StepType = "llm_planning"
+	StepLLMReport        StepType = "llm_report"
+	StepResearchPlanning StepType = "research_planning"
+	StepResearchSearch   StepType = "research_search"
+	StepResearchExtract  StepType = "research_extract"
+	StepResearchReport   StepType = "research_report"
+)
+
+type ErrorCategory string
+
+const (
+	ErrorCanceled        ErrorCategory = "canceled"
+	ErrorTimeout         ErrorCategory = "timeout"
+	ErrorRateLimited     ErrorCategory = "rate_limited"
+	ErrorTransport       ErrorCategory = "transport"
+	ErrorUpstream5xx     ErrorCategory = "upstream_5xx"
+	ErrorInvalidResponse ErrorCategory = "invalid_response"
+	ErrorConfiguration   ErrorCategory = "configuration"
+	ErrorUnknown         ErrorCategory = "unknown"
+)
+
+type Operation struct {
+	ID         string            `json:"id"`
+	Type       OperationType     `json:"type"`
+	Status     Status            `json:"status"`
+	StartedAt  time.Time         `json:"started_at"`
+	FinishedAt time.Time         `json:"finished_at,omitzero"`
+	DurationMS int64             `json:"duration_ms"`
+	Result     Result            `json:"result,omitempty"`
+	HTTPMethod string            `json:"http_method,omitempty"`
+	HTTPPath   string            `json:"http_path,omitempty"`
+	HTTPStatus int               `json:"http_status,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+type Step struct {
+	ID          string            `json:"id"`
+	OperationID string            `json:"operation_id"`
+	Name        string            `json:"name"`
+	Type        StepType          `json:"type"`
+	Status      Status            `json:"status"`
+	StartedAt   time.Time         `json:"started_at"`
+	FinishedAt  time.Time         `json:"finished_at,omitzero"`
+	DurationMS  int64             `json:"duration_ms"`
+	Result      Result            `json:"result,omitempty"`
+	Provider    string            `json:"provider,omitempty"`
+	Backend     string            `json:"backend,omitempty"`
+	Proxy       string            `json:"proxy,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type OperationError struct {
+	OperationID string        `json:"operation_id"`
+	StepID      string        `json:"step_id,omitempty"`
+	Category    ErrorCategory `json:"category,omitempty"`
+	Message     string        `json:"message"`
+	OccurredAt  time.Time     `json:"occurred_at"`
+}
+
+type OperationStart struct {
+	Type     OperationType
+	Method   string
+	Path     string
+	Metadata map[string]string
+}
+
+type OperationFinish struct {
+	HTTPStatus int
+	Err        error
+}
+
+type StepStart struct {
+	Type     StepType
+	Provider string
+	Backend  string
+	Proxy    string
+	Metadata map[string]string
+}
+
+type ProxyProbe struct {
+	ProxyName     string
+	Healthy       bool
+	Status        ProxyHealth
+	Result        Result
+	HTTPStatus    int
+	ErrorCategory ErrorCategory
+	Duration      time.Duration
+	ObservedAt    time.Time
+}
+
+type ProxyHealthTransition struct {
+	ProxyName  string
+	Healthy    bool
+	Status     ProxyHealth
+	OccurredAt time.Time
+}
+
+type OperationQuery struct {
+	From   time.Time
+	To     time.Time
+	Status Status
+	Type   OperationType
+	Limit  int
+	Offset int
+}
+
+type DashboardRange struct {
+	From time.Time
+	To   time.Time
+}
+
+type DashboardSummary struct {
+	Active    int   `json:"active"`
+	Succeeded int   `json:"succeeded"`
+	Failed    int   `json:"failed"`
+	P50MS     int64 `json:"p50_ms"`
+	P95MS     int64 `json:"p95_ms"`
+}
+
+type TimeSeriesQuery struct {
+	DashboardRange
+	Interval time.Duration
+}
+
+type TimeSeriesBucket struct {
+	StartedAt time.Time `json:"started_at"`
+	Succeeded int       `json:"succeeded"`
+	Failed    int       `json:"failed"`
+	P50MS     int64     `json:"p50_ms"`
+	P95MS     int64     `json:"p95_ms"`
+}
+
+type OperationsPage struct {
+	Operations []Operation `json:"operations"`
+	Total      int         `json:"total"`
+}
+
+type OperationDetail struct {
+	Operation Operation        `json:"operation"`
+	Steps     []Step           `json:"steps"`
+	Errors    []OperationError `json:"errors"`
+}
+
+type ProxyPoint struct {
+	ObservedAt time.Time   `json:"observed_at"`
+	Healthy    bool        `json:"healthy"`
+	Status     ProxyHealth `json:"status"`
+	Result     Result      `json:"result,omitempty"`
+	DurationMS int64       `json:"duration_ms"`
+}
+
+type ProxyDashboard struct {
+	Name       string       `json:"name"`
+	Healthy    bool         `json:"healthy"`
+	Status     ProxyHealth  `json:"status,omitempty"`
+	ObservedAt time.Time    `json:"observed_at,omitzero"`
+	DurationMS int64        `json:"duration_ms"`
+	Points     []ProxyPoint `json:"points"`
+}
+
+type Repository interface {
+	CreateOperation(context.Context, Operation) error
+	FinishOperation(context.Context, Operation) error
+	AddStep(context.Context, Step) error
+	FinishStep(context.Context, Step) error
+	AddError(context.Context, OperationError) error
+	RecordProbe(context.Context, ProxyProbe) error
+	RecordHealthTransition(context.Context, ProxyHealthTransition) error
+	ListOperations(context.Context, OperationQuery) ([]Operation, error)
+}
+
+type RetentionRepository interface {
+	DeleteExpired(context.Context, time.Time) error
+}
+
+type DashboardRepository interface {
+	ListOperations(context.Context, OperationQuery) ([]Operation, error)
+	CountOperations(context.Context, OperationQuery) (int, error)
+	GetOperation(context.Context, string) (OperationDetail, bool, error)
+	Summary(context.Context, DashboardRange) (DashboardSummary, error)
+	TimeSeries(context.Context, TimeSeriesQuery) ([]TimeSeriesBucket, error)
+	ListProxies(context.Context, DashboardRange) ([]ProxyDashboard, error)
+}

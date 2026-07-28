@@ -61,3 +61,72 @@ func TestServerConfigResearchConfigurationRequiresSeparateResearchSettings(t *te
 		t.Errorf("ResearchConfigurationError() = %v", err)
 	}
 }
+
+func TestOperationsConfigDefaultsAndValidatesRetention(t *testing.T) {
+	configuration := ServerConfig{
+		Operations: OperationsConfig{Retention: 30 * 24 * time.Hour},
+	}
+
+	if err := configuration.Operations.Validate(); err != nil {
+		t.Fatalf("Operations.Validate() error = %v", err)
+	}
+
+	configuration.Operations.Retention = 0
+	if err := configuration.Operations.Validate(); err == nil || err.Error() != "invalid configuration: operations retention must be positive" {
+		t.Errorf("Operations.Validate() error = %v", err)
+	}
+}
+
+func TestOperationsProbeConfigRequiresCompleteEnabledConfiguration(t *testing.T) {
+	valid := OperationsConfig{
+		Retention: time.Hour,
+		Probe: ProbeConfig{
+			Enabled:          true,
+			URL:              "https://status.example.com/probe",
+			Interval:         time.Minute,
+			Timeout:          5 * time.Second,
+			SuccessThreshold: 2,
+			FailureThreshold: 3,
+		},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ProbeConfig)
+	}{
+		{name: "missing URL", mutate: func(c *ProbeConfig) { c.URL = "" }},
+		{name: "unsupported URL scheme", mutate: func(c *ProbeConfig) { c.URL = "ftp://status.example.com" }},
+		{name: "zero interval", mutate: func(c *ProbeConfig) { c.Interval = 0 }},
+		{name: "zero timeout", mutate: func(c *ProbeConfig) { c.Timeout = 0 }},
+		{name: "zero success threshold", mutate: func(c *ProbeConfig) { c.SuccessThreshold = 0 }},
+		{name: "zero failure threshold", mutate: func(c *ProbeConfig) { c.FailureThreshold = 0 }},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			configuration := valid
+			testCase.mutate(&configuration.Probe)
+			if err := configuration.Validate(); err == nil {
+				t.Error("Validate() error = nil, want invalid probe configuration")
+			}
+		})
+	}
+}
+
+func TestOperationsProbeConfigAllowsDisabledProbeWithoutSettings(t *testing.T) {
+	if err := (OperationsConfig{Retention: time.Hour}).Validate(); err != nil {
+		t.Errorf("Validate() error = %v", err)
+	}
+}
+
+func TestServerConfigRejectsEnabledInvalidProbeWithoutOperationsRetention(t *testing.T) {
+	configuration := ServerConfig{
+		Operations: OperationsConfig{Probe: ProbeConfig{Enabled: true}},
+		Proxies:    []ProxyConfig{{Name: "direct", Type: "direct"}},
+	}
+	if err := configuration.Validate(); err == nil {
+		t.Error("Validate() error = nil, want invalid probe configuration")
+	}
+}

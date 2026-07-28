@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Operations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --canvas: #070b18;
+      --surface: rgba(15, 23, 42, .84);
+      --surface-raised: rgba(20, 31, 54, .92);
+      --line: rgba(148, 163, 184, .16);
+      --line-strong: rgba(148, 163, 184, .28);
+      --ink: #edf4ff;
+      --muted: #91a4c6;
+      --faint: #607292;
+      --primary: #67a8ff;
+      --primary-soft: rgba(103, 168, 255, .14);
+      --success: #2dd4a8;
+      --success-soft: rgba(45, 212, 168, .13);
+      --warning: #fbbf5c;
+      --warning-soft: rgba(251, 191, 92, .13);
+      --danger: #fb7185;
+      --danger-soft: rgba(251, 113, 133, .13);
+      --violet: #b392f0;
+      --violet-soft: rgba(179, 146, 240, .14);
+      --radius: 18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% -20%, rgba(72, 111, 255, .26), transparent 35rem),
+        radial-gradient(circle at 100% 0%, rgba(123, 73, 255, .17), transparent 29rem),
+        var(--canvas);
+    }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(103, 168, 255, .55);
+      outline-offset: 2px;
+    }
+    .shell { width: min(1440px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 44px; }
+    .eyebrow { margin: 0 0 7px; color: var(--primary); font-size: .72rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .brand { display: flex; align-items: center; gap: 15px; }
+    .brand-mark { display: grid; width: 47px; height: 47px; place-items: center; border: 1px solid rgba(103, 168, 255, .34); border-radius: 15px; color: #cce0ff; background: linear-gradient(145deg, rgba(103, 168, 255, .22), rgba(123, 73, 255, .2)); box-shadow: 0 14px 36px rgba(42, 72, 168, .17); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 5px; font-size: clamp(1.65rem, 3vw, 2.25rem); letter-spacing: -.045em; }
+    .subtitle { margin: 0; color: var(--muted); }
+    .header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .live-state, .freshness, .range-selector, .filter-control, .button { border: 1px solid var(--line); border-radius: 12px; background: rgba(15, 23, 42, .72); }
+    .live-state { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: .8rem; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px rgba(45, 212, 168, .11); }
+    .range-selector { display: flex; gap: 3px; padding: 4px; }
+    .range { border: 0; border-radius: 8px; padding: 8px 11px; color: var(--muted); background: transparent; font-size: .84rem; font-weight: 700; transition: background .18s, color .18s; }
+    .range:hover { color: var(--ink); background: rgba(148, 163, 184, .12); }
+    .range.is-active { color: #071221; background: #d9e8ff; box-shadow: 0 4px 12px rgba(103, 168, 255, .22); }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 12px; color: #dceafe; font-size: .84rem; font-weight: 750; transition: border-color .18s, background .18s; }
+    .button:hover { border-color: rgba(103, 168, 255, .54); background: var(--primary-soft); }
+    .button:disabled { cursor: wait; opacity: .55; }
+    .button-icon { width: 16px; height: 16px; }
+    .button-link { border: 0; padding: 0; color: var(--primary); background: transparent; font-size: .82rem; font-weight: 750; }
+    .button-link:hover { color: #bcd7ff; }
+    .alert { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 12px 15px; border: 1px solid rgba(251, 113, 133, .28); border-radius: 12px; color: #ffd5dd; background: var(--danger-soft); font-size: .9rem; }
+    .hidden { display: none !important; }
+    .status-strip { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; padding: 13px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(10, 17, 34, .62); color: var(--muted); font-size: .84rem; }
+    .status-strip strong { color: var(--ink); }
+    .status-message { display: flex; align-items: center; gap: 9px; }
+    .status-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; color: var(--primary); background: var(--primary-soft); }
+    .freshness { padding: 6px 9px; color: var(--faint); font-size: .75rem; white-space: nowrap; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .kpi { position: relative; overflow: hidden; min-height: 142px; padding: 17px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, var(--surface-raised), var(--surface)); box-shadow: 0 15px 35px rgba(0, 0, 0, .12); }
+    .kpi::after { position: absolute; top: -29px; right: -22px; width: 96px; height: 96px; border-radius: 50%; content: ""; opacity: .3; filter: blur(2px); }
+    .kpi.primary::after { background: var(--primary); }
+    .kpi.success::after { background: var(--success); }
+    .kpi.danger::after { background: var(--danger); }
+    .kpi.warning::after { background: var(--warning); }
+    .kpi.violet::after { background: var(--violet); }
+    .kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .79rem; font-weight: 700; }
+    .kpi-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; }
+    .primary .kpi-icon { color: var(--primary); background: var(--primary-soft); }
+    .success .kpi-icon { color: var(--success); background: var(--success-soft); }
+    .danger .kpi-icon { color: var(--danger); background: var(--danger-soft); }
+    .warning .kpi-icon { color: var(--warning); background: var(--warning-soft); }
+    .violet .kpi-icon { color: var(--violet); background: var(--violet-soft); }
+    .kpi-value { margin: 19px 0 5px; font-size: clamp(1.45rem, 2.7vw, 2rem); font-weight: 800; letter-spacing: -.05em; }
+    .kpi-note { margin: 0; color: var(--faint); font-size: .74rem; line-height: 1.35; }
+    .chart-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 16px; margin-bottom: 18px; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(150deg, rgba(20, 31, 54, .88), rgba(10, 17, 34, .88)); box-shadow: 0 18px 42px rgba(0, 0, 0, .12); }
+    .chart-card { min-height: 357px; padding: 20px; }
+    .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+    .card-heading h2, .card-heading h3 { margin: 0 0 5px; font-size: 1rem; letter-spacing: -.015em; }
+    .card-heading p { margin: 0; color: var(--muted); font-size: .79rem; line-height: 1.45; }
+    .chip { display: inline-flex; align-items: center; min-height: 25px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(148, 163, 184, .07); font-size: .7rem; font-weight: 750; white-space: nowrap; }
+    .chart-area { position: relative; height: 260px; }
+    .chart-empty { display: grid; height: 260px; place-items: center; border: 1px dashed rgba(148, 163, 184, .22); border-radius: 13px; color: var(--muted); text-align: center; }
+    .chart-empty svg { display: block; margin: 0 auto 10px; color: var(--faint); }
+    .operations-section { padding: 20px; margin-bottom: 18px; }
+    .section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+    .section-toolbar h2 { margin: 0 0 4px; font-size: 1.06rem; }
+    .section-toolbar p { margin: 0; color: var(--muted); font-size: .8rem; }
+    .filters { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .filter-control { min-height: 37px; padding: 0 31px 0 10px; color: var(--ink); background-color: rgba(6, 12, 27, .62); font-size: .8rem; }
+    .operations-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .75fr); gap: 16px; align-items: start; }
+    .table-wrap { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: rgba(6, 12, 27, .36); }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 12px 14px; color: var(--faint); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    td { padding: 13px 14px; border-top: 1px solid rgba(148, 163, 184, .1); color: #d8e5fa; font-size: .82rem; vertical-align: middle; }
+    tbody tr { transition: background .16s; }
+    tbody tr:hover { background: rgba(103, 168, 255, .055); }
+    .operation-name { display: block; color: var(--ink); font-weight: 780; text-transform: capitalize; }
+    .operation-id { display: block; max-width: 130px; overflow: hidden; margin-top: 3px; color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+    .subtle { color: var(--muted); font-size: .77rem; }
+    .duration-running { color: #c8dbff; font-variant-numeric: tabular-nums; font-weight: 720; white-space: nowrap; }
+    .duration-complete { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; min-height: 25px; padding: 0 8px; border-radius: 999px; font-size: .7rem; font-weight: 800; white-space: nowrap; }
+    .badge::before { width: 6px; height: 6px; border-radius: 50%; content: ""; }
+    .badge.running { color: #bcd7ff; background: var(--primary-soft); }.badge.running::before { background: var(--primary); }
+    .badge.succeeded { color: #abf1dd; background: var(--success-soft); }.badge.succeeded::before { background: var(--success); }
+    .badge.failed { color: #ffc3ce; background: var(--danger-soft); }.badge.failed::before { background: var(--danger); }
+    .badge.degraded { color: #ffe0a6; background: var(--warning-soft); }.badge.degraded::before { background: var(--warning); }
+    .badge.unknown { color: var(--muted); background: rgba(148, 163, 184, .1); }.badge.unknown::before { background: var(--faint); }
+    .empty-table { padding: 44px 18px; color: var(--muted); text-align: center; }
+    .load-more-row { display: flex; justify-content: center; padding-top: 14px; }
+    .inspector { position: sticky; top: 20px; min-height: 300px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 15, 31, .72); }
+    .inspector-placeholder { display: grid; min-height: 255px; place-items: center; color: var(--muted); text-align: center; }
+    .inspector-placeholder svg { display: block; margin: 0 auto 12px; color: var(--faint); }
+    .inspector-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+    .inspector-title { margin: 8px 0 3px; color: var(--ink); font-size: 1rem; text-transform: capitalize; }
+    .inspector-id { margin: 0; overflow: hidden; color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+    .icon-button { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; }
+    .detail-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
+    .detail-stat { padding: 9px; border-radius: 10px; background: rgba(148, 163, 184, .07); }
+    .detail-stat span { display: block; margin-bottom: 4px; color: var(--faint); font-size: .66rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .detail-stat strong { display: block; overflow: hidden; color: #dceafe; font-size: .76rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-section { margin-top: 16px; }
+    .detail-section h3 { margin: 0 0 9px; color: #c9d9f3; font-size: .74rem; letter-spacing: .07em; text-transform: uppercase; }
+    .timeline { display: grid; gap: 8px; }
+    .timeline-item, .error-item, .metadata-item { padding: 10px; border-left: 2px solid rgba(103, 168, 255, .44); border-radius: 0 9px 9px 0; background: rgba(148, 163, 184, .06); }
+    .timeline-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #dceafe; font-size: .78rem; font-weight: 700; }
+    .timeline-meta, .error-item p, .metadata-item p { margin: 5px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+    .error-item { border-left-color: var(--danger); }.error-item strong { color: #ffd1d8; font-size: .76rem; }.metadata-item { border-left-color: var(--violet); }
+    .proxies-section { padding: 20px; }
+    .proxy-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 17px; }
+    .proxy-card { padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 13, 28, .42); }
+    .proxy-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 13px; }.proxy-name { overflow: hidden; font-size: .88rem; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
+    .proxy-metrics { display: flex; align-items: end; justify-content: space-between; gap: 9px; }.proxy-latency { color: #dceafe; font-size: 1.12rem; font-weight: 800; letter-spacing: -.03em; }.proxy-last { color: var(--faint); font-size: .69rem; text-align: right; }
+    .proxy-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.proxy-chart { height: 240px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 13, 28, .38); }.proxy-chart .chart-area { height: 180px; }
+    footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; color: var(--faint); font-size: .72rem; }
+    @media (max-width: 1160px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.operations-layout { grid-template-columns: 1fr; }.inspector { position: static; }.chart-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .shell { width: min(100% - 28px, 1440px); padding-top: 22px; }.page-header, .status-strip, .section-toolbar { align-items: stretch; flex-direction: column; }.header-actions, .filters { justify-content: flex-start; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.kpi { min-height: 126px; }.status-strip { gap: 10px; }.freshness { align-self: flex-start; }.chart-card { min-height: 330px; padding: 16px; }.chart-area { height: 235px; }.table-wrap { overflow-x: auto; } table { min-width: 680px; }.proxy-chart-grid { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h3l2.1-6 3.8 12L14 12h7"/><circle cx="3" cy="12" r="1" fill="currentColor"/><circle cx="21" cy="12" r="1" fill="currentColor"/></svg>
+        </div>
+        <div>
+          <p class="eyebrow">Live operational telemetry</p>
+          <h1>Operations</h1>
+          <p class="subtitle">Health, performance, and investigations in one view.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="live-state"><span class="live-dot"></span>Auto-refresh</span>
+        <div class="range-selector" aria-label="Time range">
+          <button class="range is-active" type="button" data-range="24h" aria-pressed="true">24 h</button>
+          <button class="range" type="button" data-range="7d" aria-pressed="false">7 days</button>
+          <button class="range" type="button" data-range="30d" aria-pressed="false">30 days</button>
+        </div>
+        <button id="refresh" class="button" type="button" title="Refresh now">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4"/></svg>
+          Refresh
+        </button>
+      </div>
+    </header>
+
+    <p id="error" class="alert hidden" role="alert"></p>
+
+    <section class="status-strip" aria-live="polite">
+      <div class="status-message"><span id="status-icon" class="status-icon" aria-hidden="true">●</span><span id="status-message"><strong>Loading telemetry…</strong></span></div>
+      <span id="updated-at" class="freshness">Waiting for data</span>
+    </section>
+
+    <section id="summary" class="kpi-grid" aria-label="Operational summary"></section>
+
+    <section class="chart-grid" aria-label="Operational trends">
+      <article class="card chart-card">
+        <div class="card-heading"><div><h2>Completion volume</h2><p id="throughput-insight">Successful and failed operations in the selected range.</p></div><span class="chip">Outcome</span></div>
+        <div class="chart-area"><canvas id="throughput" aria-label="Chart of successful and failed operations"></canvas><div id="throughput-empty" class="chart-empty hidden"><div><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19V5m0 14h16M8 15l3-3 2 2 5-6"/></svg><span>No operations have completed in this range yet.</span></div></div></div>
+      </article>
+      <article class="card chart-card">
+        <div class="card-heading"><div><h2>Operation latency</h2><p id="latency-insight">Duration percentiles; running operations do not distort the series.</p></div><span class="chip">p50 / p95</span></div>
+        <div class="chart-area"><canvas id="latency" aria-label="Latency percentile chart"></canvas><div id="latency-empty" class="chart-empty hidden"><div><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v5l3 2m5-3a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg><span>Latency will appear once the first operation completes.</span></div></div></div>
+      </article>
+    </section>
+
+    <section class="card operations-section" aria-labelledby="operations-heading">
+      <div class="section-toolbar">
+        <div><h2 id="operations-heading">Operations explorer</h2><p id="operations-count">Loading operations…</p></div>
+        <div class="filters" aria-label="Operation filters">
+          <select id="operations-status" class="filter-control" aria-label="Filter by status"><option value="">All statuses</option><option value="running">Running</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option></select>
+          <select id="operations-type" class="filter-control" aria-label="Filter by type"><option value="">All types</option><option value="search">Search</option><option value="extract">Extraction</option><option value="research">Research</option></select>
+        </div>
+      </div>
+      <div class="operations-layout">
+        <div>
+          <div class="table-wrap">
+            <table id="operations">
+              <thead><tr><th>Operation</th><th>Status</th><th>Started</th><th>Duration</th><th>Result</th><th aria-label="Inspect"></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div id="operations-empty" class="empty-table hidden">No operations match the selected filters and time range.</div>
+          </div>
+          <div class="load-more-row"><button id="load-more" class="button hidden" type="button">Load more operations</button></div>
+        </div>
+        <aside id="operation-inspector" class="inspector" aria-live="polite">
+          <div class="inspector-placeholder"><div><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 3v6h6M8 14h8M8 18h5"/></svg><strong>Inspect an operation</strong><p>Select “View” to see its steps, redacted context, and errors.</p></div></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="proxies-section" class="card proxies-section hidden" aria-labelledby="proxies-heading">
+      <div class="section-toolbar"><div><h2 id="proxies-heading">Proxy connectivity</h2><p>Latest probe and availability trend for each proxy.</p></div><span id="proxies-count" class="chip"></span></div>
+      <div id="proxies" class="proxy-summary"></div>
+      <div class="proxy-chart-grid">
+        <article class="proxy-chart"><div class="card-heading"><div><h3>Proxy availability</h3><p>1 = healthy · 0 = unhealthy</p></div></div><div class="chart-area"><canvas id="proxy-health" aria-label="Proxy availability history"></canvas></div></article>
+        <article class="proxy-chart"><div class="card-heading"><div><h3>Probe latency</h3><p>Response time by proxy.</p></div></div><div class="chart-area"><canvas id="proxy-latency" aria-label="Proxy latency history"></canvas></div></article>
+      </div>
+    </section>
+
+    <footer><span>Operation data is persisted locally.</span><span>Auto-refreshes every 5 seconds · <span id="footer-range">Last 24 hours</span></span></footer>
+  </main>
+
+  <script>
+    const state = { range: '24h', status: '', type: '', operations: [], total: 0, refreshing: false, selectedOperationID: null };
+    const charts = {};
+    const numberFormatter = new Intl.NumberFormat('en-GB');
+    const dateFormatter = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'medium' });
+    const shortDateFormatter = new Intl.DateTimeFormat('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const rangeLabels = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
+    const chartColors = ['#67a8ff', '#b392f0', '#2dd4a8', '#fbbf5c', '#fb7185'];
+
+    function endpoint(name, parameters = {}) {
+      const query = new URLSearchParams({ range: state.range, ...parameters });
+      return `/operations/api/${name}?${query}`;
+    }
+
+    function formatCount(value) { return numberFormatter.format(value || 0); }
+
+    function formatDuration(milliseconds) {
+      const value = Number(milliseconds);
+      if (!Number.isFinite(value) || value <= 0) return '—';
+      if (value < 1000) return '< 1 s';
+      const totalSeconds = Math.floor(value / 1000);
+      const seconds = totalSeconds % 60;
+      const totalMinutes = Math.floor(totalSeconds / 60);
+      const minutes = totalMinutes % 60;
+      const hours = Math.floor(totalMinutes / 60);
+      if (hours) return `${hours} h ${minutes} min`;
+      if (minutes) return `${minutes} min ${seconds} s`;
+      return `${seconds} s`;
+    }
+
+    function formatDate(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.valueOf()) ? '—' : dateFormatter.format(date);
+    }
+
+    function formatChartDate(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.valueOf()) ? '—' : shortDateFormatter.format(date);
+    }
+
+    function elapsedMilliseconds(startedAt) {
+      const started = Date.parse(startedAt);
+      return Number.isNaN(started) ? 0 : Math.max(0, Date.now() - started);
+    }
+
+    function formatOperationDuration(operation) {
+      if (operation.status === 'running') return `Running · ${formatDuration(elapsedMilliseconds(operation.started_at))}`;
+      return formatDuration(operation.duration_ms);
+    }
+
+    function humanType(type) {
+      return { search: 'Search', extract: 'Extraction', research: 'Research' }[type] || type || 'Operation';
+    }
+
+    function humanResult(result, status) {
+      if (status === 'running') return 'Running';
+      return { succeeded: 'Succeeded', failed: 'Failed', timeout: 'Timed out', canceled: 'Cancelled' }[result] || result || '—';
+    }
+
+    function badge(value) {
+      const element = document.createElement('span');
+      const normalized = value || 'unknown';
+      element.className = `badge ${normalized}`;
+      element.textContent = { running: 'Running', succeeded: 'Succeeded', failed: 'Failed', healthy: 'Healthy', unhealthy: 'Unhealthy', degraded: 'Degraded', unknown: 'No data' }[normalized] || normalized;
+      return element;
+    }
+
+    function icon(name) {
+      const paths = {
+        pulse: '<path d="M3 12h3l2-5 4 10 2-5h7"/>',
+        check: '<path d="m5 12 4 4L19 6"/>',
+        warning: '<path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v4m0 4h.01"/>',
+        gauge: '<path d="M4 15a8 8 0 1 1 16 0"/><path d="m12 12 4-3"/><path d="M12 12v.01"/>',
+        trend: '<path d="M4 19V5m0 14h16M7 15l3-3 3 2 5-6"/>',
+      };
+      const element = document.createElement('span');
+      element.className = 'kpi-icon';
+      element.setAttribute('aria-hidden', 'true');
+      element.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
+      return element;
+    }
+
+    function renderSummary(data) {
+      const completed = data.succeeded + data.failed;
+      const completionRate = completed ? `${Math.round((data.succeeded / completed) * 100)}%` : '—';
+      const cards = [
+        { tone: 'primary', icon: 'pulse', label: 'Active now', value: formatCount(data.active), note: data.active ? 'Operations running right now' : 'No work currently running' },
+        { tone: 'success', icon: 'check', label: 'Succeeded', value: formatCount(data.succeeded), note: 'Completed successfully in this range' },
+        { tone: 'danger', icon: 'warning', label: 'Failed', value: formatCount(data.failed), note: data.failed ? 'Needs review in the explorer' : 'No failures in this range' },
+        { tone: 'violet', icon: 'trend', label: 'Success rate', value: completionRate, note: completed ? `${formatCount(completed)} completed operations` : 'No completed operations yet' },
+        { tone: 'warning', icon: 'gauge', label: 'p50 latency', value: formatDuration(data.p50_ms), note: 'Median duration of completed operations' },
+        { tone: 'primary', icon: 'gauge', label: 'p95 latency', value: formatDuration(data.p95_ms), note: 'Slow end of completed operation latency' },
+      ];
+      const elements = cards.map(card => {
+        const element = document.createElement('article');
+        const top = document.createElement('div');
+        const label = document.createElement('span');
+        const value = document.createElement('p');
+        const note = document.createElement('p');
+        element.className = `kpi ${card.tone}`;
+        top.className = 'kpi-top';
+        label.textContent = card.label;
+        top.append(label, icon(card.icon));
+        value.className = 'kpi-value';
+        value.textContent = card.value;
+        note.className = 'kpi-note';
+        note.textContent = card.note;
+        element.append(top, value, note);
+        return element;
+      });
+      document.querySelector('#summary').replaceChildren(...elements);
+
+      const status = document.querySelector('#status-message');
+      const statusIcon = document.querySelector('#status-icon');
+      if (data.failed) {
+        status.innerHTML = `<strong>${formatCount(data.failed)} failed operation${data.failed === 1 ? '' : 's'}</strong> in ${rangeLabels[state.range].toLowerCase()}. Use the explorer to investigate.`;
+        statusIcon.textContent = '!';
+        statusIcon.style.color = 'var(--danger)';
+        statusIcon.style.background = 'var(--danger-soft)';
+      } else if (data.active) {
+        status.innerHTML = `<strong>${formatCount(data.active)} running operation${data.active === 1 ? '' : 's'}</strong>. Elapsed time updates every second.`;
+        statusIcon.textContent = '↗';
+        statusIcon.style.color = 'var(--primary)';
+        statusIcon.style.background = 'var(--primary-soft)';
+      } else {
+        status.innerHTML = '<strong>Service healthy.</strong> No active operations or ongoing failures.';
+        statusIcon.textContent = '✓';
+        statusIcon.style.color = 'var(--success)';
+        statusIcon.style.background = 'var(--success-soft)';
+      }
+    }
+
+    function replaceChart(name, element, config) {
+      if (!window.Chart) throw new Error('Chart.js could not be loaded from the CDN');
+      charts[name]?.destroy();
+      charts[name] = new Chart(element, config);
+    }
+
+    function clearChart(name) { charts[name]?.destroy(); delete charts[name]; }
+
+    function chartOptions(durationAxis = false) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#b5c6e2', boxWidth: 10, boxHeight: 10, usePointStyle: true, padding: 16, font: { size: 11, weight: '600' } } },
+          tooltip: { backgroundColor: '#101b32', titleColor: '#edf4ff', bodyColor: '#c8d7ed', borderColor: 'rgba(148,163,184,.26)', borderWidth: 1, padding: 11, callbacks: durationAxis ? { label: context => `${context.dataset.label}: ${formatDuration(context.parsed.y)}` } : {} },
+        },
+        scales: {
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: '#7184a6', maxRotation: 0, autoSkip: true, maxTicksLimit: 6, font: { size: 10 } } },
+          y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,.11)' }, border: { display: false }, ticks: { color: '#7184a6', precision: 0, callback: durationAxis ? value => formatDuration(value) : undefined, font: { size: 10 } } },
+        },
+      };
+    }
+
+    function hasCompletedOperations(points) { return points.some(point => point.succeeded > 0 || point.failed > 0); }
+
+    function renderTimeSeries(points) {
+      const hasData = hasCompletedOperations(points);
+      const labels = points.map(point => formatChartDate(point.started_at));
+      document.querySelector('#throughput').classList.toggle('hidden', !hasData);
+      document.querySelector('#latency').classList.toggle('hidden', !hasData);
+      document.querySelector('#throughput-empty').classList.toggle('hidden', hasData);
+      document.querySelector('#latency-empty').classList.toggle('hidden', hasData);
+      if (!hasData) {
+        document.querySelector('#throughput-insight').textContent = 'Running operations appear below with live elapsed time.';
+        document.querySelector('#latency-insight').textContent = 'The series begins after an operation completes.';
+        clearChart('throughput'); clearChart('latency'); return;
+      }
+      const completed = points.reduce((total, point) => total + point.succeeded + point.failed, 0);
+      document.querySelector('#throughput-insight').textContent = `${formatCount(completed)} completed operations in ${rangeLabels[state.range].toLowerCase()}.`;
+      document.querySelector('#latency-insight').textContent = 'p50 shows the typical experience; p95 highlights the slowest cases.';
+      const throughputOptions = chartOptions();
+      throughputOptions.scales.x.stacked = true;
+      throughputOptions.scales.y.stacked = true;
+      replaceChart('throughput', document.querySelector('#throughput'), {
+        type: 'bar',
+        data: { labels, datasets: [
+          { label: 'Succeeded', data: points.map(point => point.succeeded), backgroundColor: '#2dd4a8', borderRadius: 5, borderSkipped: false, maxBarThickness: 28 },
+          { label: 'Failed', data: points.map(point => point.failed), backgroundColor: '#fb7185', borderRadius: 5, borderSkipped: false, maxBarThickness: 28 },
+        ] },
+        options: throughputOptions,
+      });
+      replaceChart('latency', document.querySelector('#latency'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: 'p50', data: points.map(point => point.p50_ms || null), borderColor: '#67a8ff', backgroundColor: 'rgba(103,168,255,.12)', fill: true, tension: .28, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2.25, spanGaps: true },
+          { label: 'p95', data: points.map(point => point.p95_ms || null), borderColor: '#b392f0', backgroundColor: 'transparent', fill: false, tension: .28, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2.25, borderDash: [5, 4], spanGaps: true },
+        ] },
+        options: chartOptions(true),
+      });
+    }
+
+    function createCell(content, className = '') {
+      const cell = document.createElement('td');
+      if (className) cell.className = className;
+      if (content instanceof Node) cell.append(content); else cell.textContent = content;
+      return cell;
+    }
+
+    function renderOperations() {
+      const body = document.querySelector('#operations tbody');
+      const items = state.operations;
+      body.replaceChildren();
+      document.querySelector('#operations-empty').classList.toggle('hidden', items.length !== 0);
+      document.querySelector('#operations-count').textContent = state.total ? `Showing ${formatCount(items.length)} of ${formatCount(state.total)} operations` : 'No operations recorded in this range';
+      for (const operation of items) {
+        const row = document.createElement('tr');
+        const operationCell = document.createElement('div');
+        const operationName = document.createElement('span');
+        const operationID = document.createElement('span');
+        operationName.className = 'operation-name'; operationName.textContent = humanType(operation.type);
+        operationID.className = 'operation-id'; operationID.textContent = operation.id;
+        operationCell.append(operationName, operationID);
+        const duration = document.createElement('span');
+        if (operation.status === 'running') {
+          duration.className = 'duration-running';
+          duration.dataset.startedAt = operation.started_at;
+          duration.dataset.running = 'true';
+          duration.textContent = formatOperationDuration(operation);
+        } else {
+          duration.className = 'duration-complete';
+          duration.textContent = formatOperationDuration(operation);
+        }
+        const inspect = document.createElement('button');
+        inspect.className = 'button-link'; inspect.type = 'button'; inspect.textContent = 'View';
+        inspect.onclick = () => inspectOperation(operation.id);
+        row.append(
+          createCell(operationCell),
+          createCell(badge(operation.status)),
+          createCell(formatDate(operation.started_at), 'subtle'),
+          createCell(duration),
+          createCell(humanResult(operation.result, operation.status), 'subtle'),
+          createCell(inspect),
+        );
+        body.append(row);
+      }
+      document.querySelector('#load-more').classList.toggle('hidden', items.length >= state.total || state.total === 0);
+    }
+
+    function updateLiveDurations() {
+      document.querySelectorAll('[data-running="true"][data-started-at]').forEach(element => {
+        element.textContent = `Running · ${formatDuration(elapsedMilliseconds(element.dataset.startedAt))}`;
+      });
+    }
+
+    function detailStat(label, value) {
+      const element = document.createElement('div');
+      const heading = document.createElement('span');
+      const content = document.createElement('strong');
+      element.className = 'detail-stat'; heading.textContent = label; content.textContent = value;
+      element.append(heading, content); return element;
+    }
+
+    function detailSection(title, content) {
+      const section = document.createElement('section');
+      const heading = document.createElement('h3');
+      section.className = 'detail-section'; heading.textContent = title; section.append(heading, content); return section;
+    }
+
+    function renderOperationDetail(data) {
+      const detail = data.operation;
+      const panel = document.querySelector('#operation-inspector');
+      const head = document.createElement('div');
+      const titleBlock = document.createElement('div');
+      const title = document.createElement('h2');
+      const id = document.createElement('p');
+      const close = document.createElement('button');
+      const stats = document.createElement('div');
+      head.className = 'inspector-head'; title.className = 'inspector-title'; id.className = 'inspector-id'; close.className = 'icon-button'; close.type = 'button'; close.setAttribute('aria-label', 'Close inspector'); close.textContent = '×';
+      close.onclick = () => { state.selectedOperationID = null; renderInspectorPlaceholder(); };
+      title.textContent = humanType(detail.type); id.textContent = detail.id; titleBlock.append(badge(detail.status), title, id); head.append(titleBlock, close);
+      stats.className = 'detail-stats';
+      const liveDuration = detail.status === 'running' ? `Running · ${formatDuration(elapsedMilliseconds(detail.started_at))}` : formatDuration(detail.duration_ms);
+      const duration = detailStat('Duration', liveDuration);
+      if (detail.status === 'running') { duration.querySelector('strong').dataset.running = 'true'; duration.querySelector('strong').dataset.startedAt = detail.started_at; }
+      stats.append(detailStat('Started', formatDate(detail.started_at)), duration, detailStat('Result', humanResult(detail.result, detail.status)), detailStat('HTTP', detail.http_status ? `${detail.http_method || ''} ${detail.http_status}`.trim() : '—'));
+      panel.replaceChildren(head, stats);
+
+      if (detail.http_path) {
+        const request = document.createElement('div'); request.className = 'metadata-item'; request.textContent = detail.http_path; panel.append(detailSection('Redacted path', request));
+      }
+      if (data.steps?.length) {
+        const list = document.createElement('div'); list.className = 'timeline';
+        data.steps.forEach(step => {
+          const item = document.createElement('div'); const top = document.createElement('div'); const name = document.createElement('span'); const meta = document.createElement('p');
+          item.className = 'timeline-item'; top.className = 'timeline-top'; name.textContent = step.name || step.type || 'Step'; top.append(name, badge(step.status));
+          const descriptors = [step.type, step.provider, step.backend, step.proxy, formatDuration(step.duration_ms)].filter(Boolean); meta.className = 'timeline-meta'; meta.textContent = descriptors.join(' · '); item.append(top, meta); list.append(item);
+        });
+        panel.append(detailSection('Recorded steps', list));
+      }
+      if (data.errors?.length) {
+        const list = document.createElement('div'); list.className = 'timeline';
+        data.errors.forEach(error => { const item = document.createElement('div'); const category = document.createElement('strong'); const message = document.createElement('p'); item.className = 'error-item'; category.textContent = error.category || 'Error'; message.textContent = error.message; item.append(category, message); list.append(item); });
+        panel.append(detailSection('Errors', list));
+      }
+      const metadata = Object.entries(detail.metadata || {});
+      if (metadata.length) {
+        const list = document.createElement('div'); list.className = 'timeline';
+        metadata.forEach(([key, value]) => { const item = document.createElement('div'); const name = document.createElement('strong'); const content = document.createElement('p'); item.className = 'metadata-item'; name.textContent = key; content.textContent = value; item.append(name, content); list.append(item); });
+        panel.append(detailSection('Redacted context', list));
+      }
+    }
+
+    function renderInspectorPlaceholder() {
+      document.querySelector('#operation-inspector').innerHTML = '<div class="inspector-placeholder"><div><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 3v6h6M8 14h8M8 18h5"/></svg><strong>Inspect an operation</strong><p>Select “View” to see its steps, redacted context, and errors.</p></div></div>';
+    }
+
+    async function inspectOperation(id) {
+      state.selectedOperationID = id;
+      const panel = document.querySelector('#operation-inspector');
+      panel.textContent = 'Loading details…';
+      try {
+        const response = await fetch(`/operations/api/operations/${encodeURIComponent(id)}`);
+        if (!response.ok) throw new Error('Could not load this operation’s details');
+        renderOperationDetail(await response.json());
+      } catch (failure) {
+        panel.textContent = failure.message;
+      }
+    }
+
+    function proxyLabels(data) { return [...new Set(data.flatMap(proxy => proxy.points.map(point => point.observed_at)))].sort(); }
+
+    function proxyDatasets(data, timestamps, selector) {
+      return data.map((proxy, index) => {
+        const values = new Map(proxy.points.map(point => [point.observed_at, selector(point)]));
+        return { label: proxy.name, data: timestamps.map(timestamp => values.get(timestamp) ?? null), borderColor: chartColors[index % chartColors.length], backgroundColor: 'transparent', borderWidth: 2, tension: .22, pointRadius: 2, pointHoverRadius: 5, spanGaps: true };
+      });
+    }
+
+    function renderProxies(data) {
+      const section = document.querySelector('#proxies-section');
+      section.classList.toggle('hidden', data.length === 0);
+      if (!data.length) { clearChart('proxyHealth'); clearChart('proxyLatency'); return; }
+      document.querySelector('#proxies-count').textContent = `${formatCount(data.length)} prox${data.length === 1 ? 'y' : 'ies'} with probes`;
+      const cards = data.map(proxy => {
+        const card = document.createElement('article'); const top = document.createElement('div'); const name = document.createElement('span'); const metrics = document.createElement('div'); const latency = document.createElement('span'); const last = document.createElement('span');
+        card.className = 'proxy-card'; top.className = 'proxy-top'; name.className = 'proxy-name'; name.textContent = proxy.name; top.append(name, badge(proxy.status || 'unknown'));
+        metrics.className = 'proxy-metrics'; latency.className = 'proxy-latency'; latency.textContent = formatDuration(proxy.duration_ms); last.className = 'proxy-last'; last.textContent = `Latest probe\n${formatDate(proxy.observed_at)}`; metrics.append(latency, last); card.append(top, metrics); return card;
+      });
+      document.querySelector('#proxies').replaceChildren(...cards);
+      const timestamps = proxyLabels(data); const labels = timestamps.map(formatChartDate);
+      const healthOptions = chartOptions(); healthOptions.scales.y.max = 1; healthOptions.scales.y.ticks.stepSize = 1; healthOptions.scales.y.ticks.callback = value => value === 1 ? 'Healthy' : 'Unhealthy';
+      replaceChart('proxyHealth', document.querySelector('#proxy-health'), { type: 'line', data: { labels, datasets: proxyDatasets(data, timestamps, point => point.healthy ? 1 : 0).map(dataset => ({ ...dataset, stepped: true })) }, options: healthOptions });
+      replaceChart('proxyLatency', document.querySelector('#proxy-latency'), { type: 'line', data: { labels, datasets: proxyDatasets(data, timestamps, point => point.duration_ms) }, options: chartOptions(true) });
+    }
+
+    async function fetchJSON(name, parameters) {
+      const response = await fetch(endpoint(name, parameters));
+      if (!response.ok) throw new Error(`Could not load ${name}`);
+      return response.json();
+    }
+
+    async function loadOperations(append = false) {
+      const offset = append ? state.operations.length : 0;
+      const page = await fetchJSON('operations', { limit: 50, offset, ...(state.status && { status: state.status }), ...(state.type && { type: state.type }) });
+      state.operations = append ? [...state.operations, ...(page.operations || [])] : (page.operations || []);
+      state.total = page.total || 0;
+      renderOperations();
+    }
+
+    function updateFreshness() {
+      document.querySelector('#updated-at').textContent = `Updated ${new Intl.DateTimeFormat('en-GB', { timeStyle: 'medium' }).format(new Date())}`;
+      document.querySelector('#footer-range').textContent = rangeLabels[state.range];
+    }
+
+    async function refresh() {
+      if (state.refreshing) return;
+      state.refreshing = true;
+      const button = document.querySelector('#refresh');
+      const error = document.querySelector('#error');
+      button.disabled = true; error.classList.add('hidden');
+      try {
+        const [summary, timeSeries, proxies] = await Promise.all([fetchJSON('summary'), fetchJSON('timeseries'), fetchJSON('proxies')]);
+        renderSummary(summary); renderTimeSeries(timeSeries); renderProxies(proxies); await loadOperations(); updateFreshness(); updateLiveDurations();
+      } catch (failure) {
+        error.textContent = failure.message; error.classList.remove('hidden');
+      } finally {
+        button.disabled = false; state.refreshing = false;
+      }
+    }
+
+    document.querySelectorAll('.range').forEach(button => {
+      button.onclick = () => {
+        state.range = button.dataset.range;
+        document.querySelectorAll('.range').forEach(item => { const active = item === button; item.classList.toggle('is-active', active); item.setAttribute('aria-pressed', active); });
+        state.selectedOperationID = null; renderInspectorPlaceholder(); refresh();
+      };
+    });
+    document.querySelector('#refresh').onclick = refresh;
+    document.querySelector('#operations-status').onchange = event => { state.status = event.target.value; refresh(); };
+    document.querySelector('#operations-type').onchange = event => { state.type = event.target.value; refresh(); };
+    document.querySelector('#load-more').onclick = async event => { event.currentTarget.disabled = true; try { await loadOperations(true); } catch (failure) { document.querySelector('#error').textContent = failure.message; document.querySelector('#error').classList.remove('hidden'); } finally { event.currentTarget.disabled = false; } };
+    refresh();
+    setInterval(refresh, 5000);
+    setInterval(updateLiveDurations, 1000);
+  </script>
+</body>
+</html>

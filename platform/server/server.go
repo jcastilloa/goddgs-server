@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
+	operations "github.com/jcastilloa/goddgs-server/operations/domain"
 	"github.com/jcastilloa/goddgs-server/platform/routes"
 
 	"github.com/gin-gonic/gin"
@@ -22,12 +24,26 @@ type Server struct {
 func New(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
-	engine.Use(authentication(authToken))
+	engine.Use(selectiveAuthentication(authToken, apiPrefix))
 	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research", normalizePrefix(apiPrefix)+"/extract"))
 
 	s := &Server{engine: engine, container: container}
-	s.registerRoutes(apiPrefix)
-	s.registerDocumentation(normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
+	s.registerRoutes(engine.Group(""), apiPrefix)
+	s.registerDocumentation(engine.Group(""), normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
+	s.registerOperationsRoutes()
+	return s
+}
+
+func NewWithRecorder(container di.Container, apiPrefix, version, authToken string, requestTimeout, researchTimeout time.Duration, recorder operationsApplication.EventRecorder) *Server {
+	engine := gin.New()
+	engine.Use(gin.Recovery(), gin.Logger(), errorLogger(log.Default()))
+	engine.Use(selectiveAuthentication(authToken, apiPrefix))
+	engine.Use(requestTimeoutMiddleware(requestTimeout, researchTimeout, normalizePrefix(apiPrefix)+"/research", normalizePrefix(apiPrefix)+"/extract"))
+
+	s := &Server{engine: engine, container: container}
+	s.registerRoutesWithRecorder(engine.Group(""), apiPrefix, recorder)
+	s.registerDocumentation(engine.Group(""), normalizePrefix(apiPrefix), version, strings.TrimSpace(authToken) != "")
+	s.registerOperationsRoutes()
 	return s
 }
 
@@ -80,12 +96,102 @@ func (s *Server) Run(ctx context.Context, address string) error {
 	return err
 }
 
-func (s *Server) registerRoutes(apiPrefix string) {
-	v1 := s.engine.Group(normalizePrefix(apiPrefix))
+func (s *Server) registerRoutes(protected *gin.RouterGroup, apiPrefix string) {
+	v1 := protected.Group(normalizePrefix(apiPrefix))
 
 	routes.AddSystemRoutes(v1, s.container)
 	routes.AddSearchRoutes(v1, s.container)
 	routes.AddResearchRoutes(v1, s.container)
+}
+
+func (s *Server) registerRoutesWithRecorder(protected *gin.RouterGroup, apiPrefix string, recorder operationsApplication.EventRecorder) {
+	v1 := protected.Group(normalizePrefix(apiPrefix))
+	instrumented := protected.Group(normalizePrefix(apiPrefix))
+	instrumented.Use(operationRecorderMiddleware(recorder))
+
+	routes.AddSystemRoutes(v1, s.container)
+	routes.AddSearchRoutes(instrumented, s.container)
+	routes.AddResearchRoutes(instrumented, s.container)
+}
+
+func (s *Server) registerOperationsRoutes() {
+	routes.AddOperationsRoutes(s.engine.Group("/operations"), s.container)
+}
+
+func operationRecorderMiddleware(recorder operationsApplication.EventRecorder) gin.HandlerFunc {
+	return func(ginContext *gin.Context) {
+		start, ok := operationStart(ginContext)
+		if !ok {
+			ginContext.Next()
+			return
+		}
+		requestContext, err := recorder.StartOperation(ginContext.Request.Context(), start)
+		if err == nil {
+			ginContext.Request = ginContext.Request.WithContext(requestContext)
+		}
+		ginContext.Next()
+
+		finishErr := ginContext.Request.Context().Err()
+		if finishErr == nil && len(ginContext.Errors) > 0 {
+			finishErr = ginContext.Errors.Last().Err
+		}
+		_ = recorder.FinishOperation(ginContext.Request.Context(), operations.OperationFinish{
+			HTTPStatus: ginContext.Writer.Status(),
+			Err:        finishErr,
+		})
+	}
+}
+
+func operationStart(ginContext *gin.Context) (operations.OperationStart, bool) {
+	path := ginContext.Request.URL.Path
+	switch {
+	case ginContext.Request.Method == http.MethodGet && isSearchPath(path):
+		category := strings.TrimPrefix(path, normalizePrefix(""))
+		return operations.OperationStart{
+			Type:   operations.OperationSearch,
+			Method: ginContext.Request.Method,
+			Path:   path,
+			Metadata: map[string]string{
+				"query":    searchQuery(ginContext),
+				"backend":  ginContext.Query("backend"),
+				"category": strings.TrimPrefix(category, "/"),
+			},
+		}, true
+	case ginContext.Request.Method == http.MethodGet && strings.HasSuffix(path, "/extract"):
+		return operations.OperationStart{
+			Type:   operations.OperationExtract,
+			Method: ginContext.Request.Method,
+			Path:   path,
+			Metadata: map[string]string{
+				"url":  ginContext.Query("url"),
+				"mode": ginContext.Query("mode"),
+			},
+		}, true
+	case ginContext.Request.Method == http.MethodPost && strings.HasSuffix(path, "/research"):
+		return operations.OperationStart{
+			Type:   operations.OperationResearch,
+			Method: ginContext.Request.Method,
+			Path:   path,
+		}, true
+	default:
+		return operations.OperationStart{}, false
+	}
+}
+
+func isSearchPath(path string) bool {
+	for _, suffix := range []string{"/text", "/images", "/news", "/videos", "/books"} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func searchQuery(ginContext *gin.Context) string {
+	if value := ginContext.Query("q"); strings.TrimSpace(value) != "" {
+		return value
+	}
+	return ginContext.Query("query")
 }
 
 func normalizePrefix(prefix string) string {

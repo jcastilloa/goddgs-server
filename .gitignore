@@ -12,6 +12,11 @@ coverage.out
 /goddgs-server.log
 /goddgs-server.pid
 
+# Runtime operations database (created next to the executable by default).
+operations.sqlite
+operations.sqlite-shm
+operations.sqlite-wal
+
 # Local editor/tooling state.
 .opencode/node_modules/
 .opencode/package-lock.json

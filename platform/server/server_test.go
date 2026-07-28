@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
+	operations "github.com/jcastilloa/goddgs-server/operations/domain"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
+	operationsHandler "github.com/jcastilloa/goddgs-server/platform/handlers/operations"
 	searchApplication "github.com/jcastilloa/goddgs-server/search/application"
 	"github.com/jcastilloa/goddgs-server/search/domain"
 )
@@ -91,6 +94,27 @@ func TestServerAppliesAuthenticationToSearchRoutes(t *testing.T) {
 	}
 }
 
+func TestServerAllowsOperationsDashboardWithoutBearerAndProtectsExistingEndpoints(t *testing.T) {
+	httpServer, closeContainer := newServer(t, "token", time.Second, &serverGateway{})
+	defer closeContainer()
+
+	for _, path := range []string{"/operations", "/operations/api/summary"} {
+		recorder := httptest.NewRecorder()
+		httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d, want 200; body = %s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	for _, path := range []string{"/v1/version", "/openapi.json", "/docs/"} {
+		recorder := httptest.NewRecorder()
+		httpServer.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("GET %s status = %d, want 401", path, recorder.Code)
+		}
+	}
+}
+
 func TestServerAppliesRequestTimeout(t *testing.T) {
 	gateway := &serverGateway{search: func(ctx context.Context, _ domain.SearchRequest) ([]domain.RawResult, error) {
 		<-ctx.Done()
@@ -162,9 +186,56 @@ func TestServerRunStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestServerWithRecorderKeepsSearchContractUnchanged(t *testing.T) {
+	gateway := &serverGateway{results: []domain.RawResult{{"title": "result"}}}
+	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil, nil, operationsHandler.EmptyUseCase{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer (*container).Delete()
+	server := NewWithRecorder(*container, "/v1", "test", "", time.Second, time.Second, operationsApplication.NewEventRecorder(&noopRepository{}, time.Now, func() string { return "operation-1" }))
+
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/text?q=query", nil))
+	if recorder.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestServerWithRecorderInstrumentsEverySearchRoute(t *testing.T) {
+	gateway := &serverGateway{results: []domain.RawResult{{"title": "result"}}}
+	recorderRepository := &recordingRepository{}
+	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil, nil, operationsHandler.EmptyUseCase{}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer (*container).Delete()
+
+	server := NewWithRecorder(*container, "/v1", "test", "", time.Second, time.Second, operationsApplication.NewEventRecorder(recorderRepository, time.Now, func() string { return "operation-1" }))
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/v1/text?q=query", nil),
+		httptest.NewRequest(http.MethodGet, "/v1/news?q=query", nil),
+	} {
+		recorder := httptest.NewRecorder()
+		server.engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200", request.URL.Path, recorder.Code)
+		}
+	}
+	if len(recorderRepository.operations) != 2 {
+		t.Fatalf("operations = %d, want 2", len(recorderRepository.operations))
+	}
+	if got := recorderRepository.operations[0].Metadata["category"]; got != "text" {
+		t.Errorf("text category = %q, want text", got)
+	}
+	if got := recorderRepository.operations[1].Metadata["category"]; got != "news" {
+		t.Errorf("news category = %q, want news", got)
+	}
+}
+
 func newServer(t *testing.T, token string, timeout time.Duration, gateway *serverGateway) (*Server, func()) {
 	t.Helper()
-	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil, nil).Build()
+	container, err := containerdi.New("test", searchApplication.NewService(gateway), nil, nil, operationsHandler.EmptyUseCase{}).Build()
 	if err != nil {
 		t.Fatalf("build container: %v", err)
 	}
@@ -188,4 +259,51 @@ func (g *serverGateway) Search(ctx context.Context, request domain.SearchRequest
 
 func (g *serverGateway) Extract(_ context.Context, _ domain.ExtractRequest) (domain.ExtractResult, error) {
 	return g.extractResult, nil
+}
+
+type noopRepository struct{}
+
+func (noopRepository) CreateOperation(context.Context, operations.Operation) error { return nil }
+func (noopRepository) FinishOperation(context.Context, operations.Operation) error { return nil }
+func (noopRepository) AddStep(context.Context, operations.Step) error              { return nil }
+func (noopRepository) FinishStep(context.Context, operations.Step) error           { return nil }
+func (noopRepository) AddError(context.Context, operations.OperationError) error   { return nil }
+func (noopRepository) RecordProbe(context.Context, operations.ProxyProbe) error    { return nil }
+func (noopRepository) RecordHealthTransition(context.Context, operations.ProxyHealthTransition) error {
+	return nil
+}
+func (noopRepository) ListOperations(context.Context, operations.OperationQuery) ([]operations.Operation, error) {
+	return nil, nil
+}
+
+type recordingRepository struct {
+	operations []operations.Operation
+}
+
+func (r *recordingRepository) CreateOperation(_ context.Context, operation operations.Operation) error {
+	r.operations = append(r.operations, operation)
+	return nil
+}
+func (r *recordingRepository) FinishOperation(_ context.Context, operation operations.Operation) error {
+	for index := range r.operations {
+		if r.operations[index].ID == operation.ID {
+			operation.Metadata = r.operations[index].Metadata
+			operation.Type = r.operations[index].Type
+			operation.HTTPMethod = r.operations[index].HTTPMethod
+			operation.HTTPPath = r.operations[index].HTTPPath
+			r.operations[index] = operation
+			return nil
+		}
+	}
+	return nil
+}
+func (r *recordingRepository) AddStep(context.Context, operations.Step) error            { return nil }
+func (r *recordingRepository) FinishStep(context.Context, operations.Step) error         { return nil }
+func (r *recordingRepository) AddError(context.Context, operations.OperationError) error { return nil }
+func (r *recordingRepository) RecordProbe(context.Context, operations.ProxyProbe) error  { return nil }
+func (r *recordingRepository) RecordHealthTransition(context.Context, operations.ProxyHealthTransition) error {
+	return nil
+}
+func (r *recordingRepository) ListOperations(context.Context, operations.OperationQuery) ([]operations.Operation, error) {
+	return nil, nil
 }
