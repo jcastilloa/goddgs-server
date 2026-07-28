@@ -52,15 +52,17 @@ const (
 type StepType string
 
 const (
-	StepSearch           StepType = "search"
-	StepExtractHeuristic StepType = "extract_heuristic"
-	StepExtractAI        StepType = "extract_ai"
-	StepLLMPlanning      StepType = "llm_planning"
-	StepLLMReport        StepType = "llm_report"
-	StepResearchPlanning StepType = "research_planning"
-	StepResearchSearch   StepType = "research_search"
-	StepResearchExtract  StepType = "research_extract"
-	StepResearchReport   StepType = "research_report"
+	StepSearch            StepType = "search"
+	StepExtractHeuristic  StepType = "extract_heuristic"
+	StepExtractAI         StepType = "extract_ai"
+	StepLLMPlanning       StepType = "llm_planning"
+	StepLLMSelection      StepType = "llm_selection"
+	StepLLMReport         StepType = "llm_report"
+	StepResearchPlanning  StepType = "research_planning"
+	StepResearchSearch    StepType = "research_search"
+	StepResearchSelection StepType = "research_selection"
+	StepResearchExtract   StepType = "research_extract"
+	StepResearchReport    StepType = "research_report"
 )
 
 type ErrorCategory string

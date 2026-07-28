@@ -21,8 +21,17 @@ extract_ai:
 
 research:
   timeout: 10m
+  # Maximum normalized search-result metadata candidates sent to selection_ai.
+  max_selection_candidates: 100
+  # Maximum selection_ai-approved URLs that can be downloaded and extracted.
+  max_selected_sources: 20
   max_concurrent_extractions: 20
   query_ai:
+    model: gpt-4.1-mini
+    timeout: 30s
+    temperature: 0.1
+    retries: 2
+  selection_ai:
     model: gpt-4.1-mini
     timeout: 30s
     temperature: 0.1

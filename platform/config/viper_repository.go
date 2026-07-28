@@ -111,11 +111,19 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 		Research: configDomain.ResearchConfig{
 			Timeout:                  researchTimeout,
 			MaxConcurrentExtractions: r.v.GetInt("research.max_concurrent_extractions"),
+			MaxSelectionCandidates:   r.v.GetInt("research.max_selection_candidates"),
+			MaxSelectedSources:       r.v.GetInt("research.max_selected_sources"),
 			QueryAI: configDomain.ResearchAIConfig{
 				Model:       r.v.GetString("research.query_ai.model"),
 				Timeout:     r.v.GetDuration("research.query_ai.timeout"),
 				Temperature: r.v.GetFloat64("research.query_ai.temperature"),
 				Retries:     r.v.GetInt("research.query_ai.retries"),
+			},
+			SelectionAI: configDomain.ResearchAIConfig{
+				Model:       r.v.GetString("research.selection_ai.model"),
+				Timeout:     r.v.GetDuration("research.selection_ai.timeout"),
+				Temperature: r.v.GetFloat64("research.selection_ai.temperature"),
+				Retries:     r.v.GetInt("research.selection_ai.retries"),
 			},
 			ReportAI: configDomain.ResearchAIConfig{
 				Model:       r.v.GetString("research.report_ai.model"),

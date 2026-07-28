@@ -60,6 +60,29 @@ type LLMReporter struct {
 	now   func() time.Time
 }
 
+type LLMSelector struct {
+	model CompletionModel
+}
+
+func NewLLMSelector(model CompletionModel) LLMSelector {
+	return LLMSelector{model: model}
+}
+
+func (s LLMSelector) Select(ctx context.Context, request SelectionRequest) (Selection, error) {
+	if s.model == nil {
+		return Selection{}, domain.ErrUnavailable
+	}
+	response, err := s.model.Complete(ctx, selectorSystemPrompt, selectorUserPrompt(request))
+	if err != nil {
+		return Selection{}, err
+	}
+	var selection Selection
+	if err := decodeJSON(response, &selection); err != nil {
+		return Selection{}, fmt.Errorf("%w: decode source selection: %v", domain.ErrInvalidResponse, err)
+	}
+	return selection, nil
+}
+
 func NewLLMReporter(model CompletionModel, now ...func() time.Time) LLMReporter {
 	currentTime := time.Now
 	if len(now) > 0 && now[0] != nil {
@@ -84,7 +107,11 @@ func (r LLMReporter) Write(ctx context.Context, request ReportRequest) (Report, 
 }
 
 func decodeJSON(input string, output any) error {
-	decoder := json.NewDecoder(strings.NewReader(stripCodeFence(input)))
+	return decodeJSONContent(stripCodeFence(input), output)
+}
+
+func decodeJSONContent(input string, output any) error {
+	decoder := json.NewDecoder(strings.NewReader(input))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(output); err != nil {
 		return err

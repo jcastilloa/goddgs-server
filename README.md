@@ -288,7 +288,7 @@ The AI instructions are deliberately narrow: source HTML is treated as untrusted
 
 ### Research
 
-`POST /v1/research` turns a generic topic into search queries, searches through goddgs, extracts the returned URLs with AI extraction, and produces a sanitized HTML report with the sources it actually used. The source list has the shape `[{"url":"…","title":"…"}]`; the report model selects source IDs supplied by the server, so it cannot add arbitrary URLs.
+`POST /v1/research` turns a generic topic into search queries, searches through goddgs, sends only each result's server-assigned ID, title, description, and URL to a selection LLM, extracts only the approved URLs with AI extraction, and produces a sanitized HTML report with the sources it actually used. The selector never receives page HTML, and results it rejects are never crawled or sent to AI extraction. The source list has the shape `[{"url":"…","title":"…"}]`; both LLM stages select only IDs supplied by the server, so they cannot add arbitrary URLs.
 
 ```sh
 curl -sS -X POST 'http://localhost:8080/v1/research' \
@@ -314,7 +314,9 @@ Set `region` to use one goddgs region for every query. If omitted, it is derived
 
 #### Behavior
 
-Research attempts every unique URL returned by the searches, up to `query_count × results_per_query`; there is no independent URL limit. Any page that fails extraction, returns empty content, or duplicates another final URL is silently ignored — it is neither included in the report nor listed as a source. If no usable source remains, the endpoint returns `502`.
+Research discovers up to `query_count × results_per_query` valid unique URLs. It assigns stable candidate IDs and sends each ID, title, description when available, and URL for the first `research.max_selection_candidates` discovered candidates to `selection_ai`; this model returns an ordered shortlist of at most `research.max_selected_sources` candidate IDs. Candidates outside either selection boundary are not crawled or submitted to AI extraction. Any approved page that fails extraction, returns empty content, or duplicates another final URL is silently ignored — it is neither included in the report nor listed as a source. If selection fails or returns an invalid shortlist, or if no usable source remains, the endpoint returns `502`.
+
+The selector is instructed to prefer relevance to the research topic, useful coverage across facets, diverse sources, and authoritative or primary sources when the result metadata supports those judgments. This is a prefilter, not proof that an approved page is factual or extractable.
 
 #### Diagnostics
 
@@ -322,23 +324,35 @@ Every successful response includes `diagnostics`. `diagnostics.backends` aggrega
 
 - `query_planning_ms`
 - `search_ms`
-- `source_extraction_ms` (the parallel AI source-extraction stage)
+- `source_selection_ms`
+- `source_extraction_ms` (the parallel AI source-extraction stage for selection-approved URLs only)
 - `report_generation_ms`
 - `total_ms`
+- `candidates_found` (valid, URL-deduplicated discovered results)
+- `candidates_selected` (validated URLs approved before extraction)
 
 Backend diagnostics do not cover source-page downloads.
 
 #### Configuration
 
-Research needs the existing `llm` and `extract_ai` settings plus a global research timeout and separate LLM settings for query planning and report writing:
+Research needs the existing `llm` and `extract_ai` settings plus a global research timeout, independent source-selection and extraction budgets, and separate LLM settings for query planning, source selection, and report writing:
 
 ```yaml
 research:
   # Independent from service.request_timeout; must cover the entire workflow.
   timeout: 10m
+  # Maximum normalized search-result metadata candidates sent to selection_ai.
+  max_selection_candidates: 100
+  # Maximum selection_ai-approved URLs that can be downloaded and extracted.
+  max_selected_sources: 20
   # Maximum source pages extracted through AI at the same time.
   max_concurrent_extractions: 20
   query_ai:
+    model: gpt-4.1-mini
+    timeout: 30s
+    temperature: 0.1
+    retries: 2
+  selection_ai:
     model: gpt-4.1-mini
     timeout: 30s
     temperature: 0.1
@@ -350,7 +364,7 @@ research:
     retries: 2
 ```
 
-The query and report models each use their own model, temperature, timeout, and retry policy. `extract_ai` continues to control the separate AI extraction call made for every discovered source. `research.max_concurrent_extractions` limits how many source pages are extracted concurrently and must be positive. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
+The query, selection, and report models each use their own model, temperature, timeout, and retry policy while sharing `llm.base_url`, `llm.api_key`, and `llm.headers`. `selection_ai` receives only the server-assigned candidate ID, title, description, and URL metadata. `research.max_selection_candidates` limits selector input, `research.max_selected_sources` limits source-page downloads, and `research.max_concurrent_extractions` limits concurrent extraction requests; all must be positive. `extract_ai` controls the AI extraction call for each selection-approved source. If any required setting is missing, research returns `503`; ordinary search and heuristic extraction continue to work.
 
 ### Authentication
 

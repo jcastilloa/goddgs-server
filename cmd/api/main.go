@@ -9,6 +9,7 @@ import (
 	"time"
 
 	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
+	operationsDomain "github.com/jcastilloa/goddgs-server/operations/domain"
 	"github.com/jcastilloa/goddgs-server/platform/config"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
 	extractAIPlatform "github.com/jcastilloa/goddgs-server/platform/extractai"
@@ -21,6 +22,7 @@ import (
 	"github.com/jcastilloa/goddgs-server/platform/server"
 	researchApplication "github.com/jcastilloa/goddgs-server/research/application"
 	searchApplication "github.com/jcastilloa/goddgs-server/search/application"
+	configDomain "github.com/jcastilloa/goddgs-server/shared/config/domain"
 	extractAIApplication "github.com/jcastilloa/goddgs-server/shared/extractai/application"
 )
 
@@ -97,29 +99,7 @@ func main() {
 		}
 	}
 
-	var researchService researchHandler.UseCase
-	if configurationError := serverCfg.ResearchConfigurationError(); configurationError != nil {
-		researchService = researchApplication.NewUnavailableService(configurationError)
-	} else {
-		queryModel, queryError := openAIPlatform.NewCompatibleResearchClient(serverCfg.LLM, serverCfg.Research.QueryAI)
-		reportModel, reportError := openAIPlatform.NewCompatibleResearchClient(serverCfg.LLM, serverCfg.Research.ReportAI)
-		if queryError != nil {
-			researchService = researchApplication.NewUnavailableService(queryError)
-		} else if reportError != nil {
-			researchService = researchApplication.NewUnavailableService(reportError)
-		} else {
-			recordedQueryModel := operationsApplication.NewCompletionModelRecorder(queryModel, eventRecorder, "llm_planning", "openai-compatible", serverCfg.Research.QueryAI.Model)
-			recordedReportModel := operationsApplication.NewCompletionModelRecorder(reportModel, eventRecorder, "llm_report", "openai-compatible", serverCfg.Research.ReportAI.Model)
-			researchService = researchApplication.NewService(
-				researchApplication.NewLLMPlanner(recordedQueryModel, serverCfg.Research.QueryAI.Retries),
-				searchService,
-				extractAIService,
-				researchApplication.NewLLMReporter(recordedReportModel),
-				serverCfg.Research.MaxConcurrentExtractions,
-				eventRecorder,
-			)
-		}
-	}
+	researchService := newResearchUseCase(serverCfg, searchService, extractAIService, eventRecorder)
 
 	dashboardService := operationsApplication.NewDashboardService(operationsStore)
 	dashboardAuthService := operationsApplication.NewDashboardAuthService(operationsStore, operationsApplication.DashboardAuthConfig{SessionTTL: serverCfg.Operations.DashboardAuth.SessionTTL})
@@ -137,4 +117,39 @@ func main() {
 	if err := httpServer.Run(ctx, serverCfg.Service.HTTPAddress()); err != nil {
 		log.Print(err)
 	}
+}
+
+func newResearchUseCase(serverCfg configDomain.ServerConfig, searcher researchApplication.Searcher, extractor researchApplication.Extractor, eventRecorder operationsApplication.EventRecorder) researchHandler.UseCase {
+	if configurationError := serverCfg.ResearchConfigurationError(); configurationError != nil {
+		return researchApplication.NewUnavailableService(configurationError)
+	}
+	queryModel, queryError := openAIPlatform.NewCompatibleResearchClient(serverCfg.LLM, serverCfg.Research.QueryAI)
+	selectionModel, selectionError := openAIPlatform.NewCompatibleResearchClient(serverCfg.LLM, serverCfg.Research.SelectionAI)
+	reportModel, reportError := openAIPlatform.NewCompatibleResearchClient(serverCfg.LLM, serverCfg.Research.ReportAI)
+	if queryError != nil {
+		return researchApplication.NewUnavailableService(queryError)
+	}
+	if selectionError != nil {
+		return researchApplication.NewUnavailableService(selectionError)
+	}
+	if reportError != nil {
+		return researchApplication.NewUnavailableService(reportError)
+	}
+
+	recordedQueryModel := operationsApplication.NewCompletionModelRecorder(queryModel, eventRecorder, operationsDomain.StepLLMPlanning, "openai-compatible", serverCfg.Research.QueryAI.Model)
+	recordedSelectionModel := operationsApplication.NewCompletionModelRecorder(selectionModel, eventRecorder, operationsDomain.StepLLMSelection, "openai-compatible", serverCfg.Research.SelectionAI.Model)
+	recordedReportModel := operationsApplication.NewCompletionModelRecorder(reportModel, eventRecorder, operationsDomain.StepLLMReport, "openai-compatible", serverCfg.Research.ReportAI.Model)
+	return researchApplication.NewService(
+		researchApplication.NewLLMPlanner(recordedQueryModel, serverCfg.Research.QueryAI.Retries),
+		researchApplication.NewLLMSelector(recordedSelectionModel),
+		searcher,
+		extractor,
+		researchApplication.NewLLMReporter(recordedReportModel),
+		researchApplication.Limits{
+			MaxSelectionCandidates:   serverCfg.Research.MaxSelectionCandidates,
+			MaxSelectedSources:       serverCfg.Research.MaxSelectedSources,
+			MaxConcurrentExtractions: serverCfg.Research.MaxConcurrentExtractions,
+		},
+		eventRecorder,
+	)
 }

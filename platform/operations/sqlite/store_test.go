@@ -3,10 +3,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +171,85 @@ func TestStorePersistsRecordedOperationDurationAndErrors(t *testing.T) {
 	}
 	if status != string(operations.StatusFailed) || result != string(operations.ResultTimeout) || duration != 0 {
 		t.Errorf("persisted operation = status %q result %q duration %d", status, result, duration)
+	}
+}
+
+func TestStoreUpdatesStepMetadataWhenSelectionFinishes(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "operations.sqlite"))
+	defer store.Close()
+
+	if err := store.CreateOperation(context.Background(), operations.Operation{ID: "research-1", Type: operations.OperationResearch, Status: operations.StatusRunning, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddStep(context.Background(), operations.Step{
+		ID:          "selection-1",
+		OperationID: "research-1",
+		Type:        operations.StepResearchSelection,
+		Status:      operations.StatusRunning,
+		StartedAt:   time.Now().UTC(),
+		Metadata:    map[string]string{"candidates_found": "8", "candidates_submitted": "3", "candidates_selected": "0"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishStep(context.Background(), operations.Step{
+		ID:         "selection-1",
+		Status:     operations.StatusSucceeded,
+		Result:     operations.ResultSucceeded,
+		FinishedAt: time.Now().UTC(),
+		Metadata:   map[string]string{"candidates_found": "8", "candidates_submitted": "3", "candidates_selected": "2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var metadataJSON string
+	if err := store.db.QueryRow(`SELECT metadata FROM operation_steps WHERE step_id = ?`, "selection-1").Scan(&metadataJSON); err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if want := map[string]string{"candidates_found": "8", "candidates_submitted": "3", "candidates_selected": "2"}; !reflect.DeepEqual(metadata, want) {
+		t.Errorf("metadata = %#v, want %#v", metadata, want)
+	}
+}
+
+func TestStorePreservesMetadataWhenFinishingAnUnmodifiedStep(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "operations.sqlite"))
+	defer store.Close()
+
+	if err := store.CreateOperation(context.Background(), operations.Operation{ID: "research-1", Type: operations.OperationResearch, Status: operations.StatusRunning, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddStep(context.Background(), operations.Step{
+		ID:          "planning-1",
+		OperationID: "research-1",
+		Type:        operations.StepResearchPlanning,
+		Status:      operations.StatusRunning,
+		StartedAt:   time.Now().UTC(),
+		Metadata:    map[string]string{"query": "research topic"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishStep(context.Background(), operations.Step{
+		ID:         "planning-1",
+		Status:     operations.StatusSucceeded,
+		Result:     operations.ResultSucceeded,
+		FinishedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var metadataJSON string
+	if err := store.db.QueryRow(`SELECT metadata FROM operation_steps WHERE step_id = ?`, "planning-1").Scan(&metadataJSON); err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if want := map[string]string{"query": "research topic"}; !reflect.DeepEqual(metadata, want) {
+		t.Errorf("metadata = %#v, want %#v", metadata, want)
 	}
 }
 

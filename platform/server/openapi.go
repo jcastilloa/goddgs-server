@@ -104,16 +104,16 @@ func researchPath() gin.H {
 }
 
 func researchDescription() string {
-	return `Generates web-search queries with the configured query LLM, searches with goddgs, extracts every unique search-result URL through ` + "`mode=ai`" + ` behavior, and creates a sanitized HTML report with the configured report LLM.
+	return `Generates web-search queries with the configured query LLM, searches with goddgs, asks the configured selection LLM to choose result metadata, extracts only approved URLs through ` + "`mode=ai`" + ` behavior, and creates a sanitized HTML report with the configured report LLM.
 
 - ` + "`query`" + ` is required. ` + "`report_language`" + ` is an ISO 639-1 code and defaults to ` + "`en`" + `.
 - ` + "`query_languages`" + ` controls query generation and defaults to ` + "`[\"en\"]`" + `. ` + "`query_count`" + ` is the total number of generated queries, distributed across those languages; it defaults to ` + "`10`" + `.
-- ` + "`results_per_query`" + ` defaults to ` + "`10`" + `. The service attempts every unique URL returned, up to ` + "`query_count × results_per_query`" + `; it does not have a separate source limit.
+- ` + "`results_per_query`" + ` defaults to ` + "`10`" + `. Discovery produces up to ` + "`query_count × results_per_query`" + ` valid unique URLs. The selector receives only a server-assigned candidate ID, title, description, and URL for up to ` + "`research.max_selection_candidates`" + ` candidates, then may approve up to ` + "`research.max_selected_sources`" + ` URLs by ID.
 - ` + "`region`" + ` applies to every search when present. Otherwise it is derived per query language: ` + "`en → us-en`" + ` and ` + "`es → es-es`" + `. An unsupported query language requires an explicit region.
-- Failed, empty, invalid, or duplicate extractions are omitted silently. The report and ` + "`sources`" + ` contain only successfully extracted sources selected by the report model. All cited source IDs are verified by the server, and returned HTML is sanitized.
-- ` + "`diagnostics`" + ` reports actual completed goddgs backend attempts (including result and error counts) and elapsed milliseconds for query planning, searches, parallel source extraction, report generation, and the total operation. Backend counts cover generated-query searches only, not the source page downloads.
+- Candidates not approved by selection, or omitted by its input limit, are not crawled or submitted to AI extraction. Failed, empty, invalid, or duplicate extractions are omitted silently. The report and ` + "`sources`" + ` contain only successfully extracted sources selected by the report model. All cited source IDs are verified by the server, and returned HTML is sanitized.
+- ` + "`diagnostics`" + ` reports actual completed goddgs backend attempts (including result and error counts), ` + "`candidates_found`" + `, ` + "`candidates_selected`" + `, and elapsed milliseconds for query planning, searches, ` + "`source_selection_ms`" + `, parallel source extraction, report generation, and the total operation. Backend counts cover generated-query searches only, not source page downloads.
 
-Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.max_concurrent_extractions`" + `, ` + "`research.query_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
+Research requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.*`" + `, ` + "`research.timeout`" + `, ` + "`research.max_selection_candidates`" + `, ` + "`research.max_selected_sources`" + `, ` + "`research.max_concurrent_extractions`" + `, ` + "`research.query_ai.*`" + `, ` + "`research.selection_ai.*`" + `, and ` + "`research.report_ai.*`" + `. Its operation timeout is independent from the ordinary server request timeout.`
 }
 
 func researchRequestSchema() gin.H {
@@ -133,12 +133,12 @@ func researchRequestSchema() gin.H {
 
 func researchResponses() gin.H {
 	return gin.H{
-		"200": jsonResponse("Research completed. Individual inaccessible sources are omitted without being reported.", researchResultSchema(), "research", gin.H{"report_html": "<article><h1>E.T.</h1><p>E.T. premiered in 1982 and opened with …</p></article>", "sources": []gin.H{{"url": "https://example.com/et", "title": "E.T. release and box office"}}, "diagnostics": gin.H{"backends": []gin.H{{"name": "google", "provider": "google", "attempts": 2, "result_count": 10, "error_count": 0}}, "query_planning_ms": 220, "search_ms": 1400, "source_extraction_ms": 8300, "report_generation_ms": 570, "total_ms": 10490}}),
+		"200": jsonResponse("Research completed. URLs rejected by selection are not crawled; individual approved but inaccessible sources are omitted without being reported.", researchResultSchema(), "research", gin.H{"report_html": "<article><h1>E.T.</h1><p>E.T. premiered in 1982 and opened with …</p></article>", "sources": []gin.H{{"url": "https://example.com/et", "title": "E.T. release and box office"}}, "diagnostics": gin.H{"backends": []gin.H{{"name": "google", "provider": "google", "attempts": 2, "result_count": 10, "error_count": 0}}, "query_planning_ms": 220, "search_ms": 1400, "source_selection_ms": 340, "source_extraction_ms": 8300, "report_generation_ms": 570, "total_ms": 10830, "candidates_found": 32, "candidates_selected": 12}}),
 		"400": errorResponse("The JSON body or research parameters are invalid.", "invalid_request", "invalid research request: query is required"),
 		"401": errorResponse("Authentication is required when enabled.", "authentication_required", "unauthorized"),
 		"429": errorResponse("A configured LLM rate limited research.", "rate_limited", "research rate limited"),
 		"499": errorResponse("The client canceled the research request.", "request_canceled", "request canceled"),
-		"502": errorResponse("Query generation, the report, or all source extraction failed. Individual source failures are intentionally not exposed.", "upstream_failure", "research failed"),
+		"502": errorResponse("Query generation, source selection, the report, or all approved source extraction failed. Individual source failures are intentionally not exposed.", "upstream_failure", "research failed"),
 		"503": errorResponse("Research AI or AI extraction configuration is unavailable.", "research_not_configured", "research is unavailable: research query AI model is required"),
 		"504": errorResponse("The research operation timeout elapsed.", "timeout", "research timed out"),
 	}
@@ -151,13 +151,16 @@ func researchResultSchema() gin.H {
 		"properties": gin.H{
 			"report_html": gin.H{"type": "string", "description": "Sanitized HTML research report."},
 			"sources":     gin.H{"type": "array", "description": "Successfully extracted sources selected for the report.", "items": gin.H{"type": "object", "required": []string{"url", "title"}, "properties": gin.H{"url": gin.H{"type": "string", "format": "uri"}, "title": gin.H{"type": "string"}}}},
-			"diagnostics": gin.H{"type": "object", "description": "Observed research workflow timings and completed search-backend attempts. Durations are elapsed milliseconds; backend data excludes source page downloads.", "required": []string{"backends", "query_planning_ms", "search_ms", "source_extraction_ms", "report_generation_ms", "total_ms"}, "properties": gin.H{
+			"diagnostics": gin.H{"type": "object", "description": "Observed research workflow timings, candidate counts, and completed search-backend attempts. Durations are elapsed milliseconds; backend data excludes source page downloads.", "required": []string{"backends", "query_planning_ms", "search_ms", "source_selection_ms", "source_extraction_ms", "report_generation_ms", "total_ms", "candidates_found", "candidates_selected"}, "properties": gin.H{
 				"backends":             gin.H{"type": "array", "description": "Completed goddgs backend attempts aggregated across generated queries.", "items": gin.H{"type": "object", "required": []string{"name", "provider", "attempts", "result_count", "error_count"}, "properties": gin.H{"name": gin.H{"type": "string", "description": "goddgs backend name."}, "provider": gin.H{"type": "string", "description": "goddgs provider label used for scheduler de-duplication."}, "attempts": gin.H{"type": "integer", "minimum": 0}, "result_count": gin.H{"type": "integer", "minimum": 0}, "error_count": gin.H{"type": "integer", "minimum": 0}}}},
 				"query_planning_ms":    gin.H{"type": "integer", "minimum": 0, "description": "Query-planning LLM elapsed time in milliseconds."},
 				"search_ms":            gin.H{"type": "integer", "minimum": 0, "description": "All generated-query searches elapsed time in milliseconds."},
-				"source_extraction_ms": gin.H{"type": "integer", "minimum": 0, "description": "Parallel source AI extraction elapsed time in milliseconds."},
+				"source_selection_ms":  gin.H{"type": "integer", "minimum": 0, "description": "Search-result metadata selection phase elapsed time in milliseconds."},
+				"source_extraction_ms": gin.H{"type": "integer", "minimum": 0, "description": "Parallel source AI extraction elapsed time for selected URLs only."},
 				"report_generation_ms": gin.H{"type": "integer", "minimum": 0, "description": "Report-writing LLM elapsed time in milliseconds."},
 				"total_ms":             gin.H{"type": "integer", "minimum": 0, "description": "Total successful research operation elapsed time in milliseconds."},
+				"candidates_found":     gin.H{"type": "integer", "minimum": 0, "description": "Valid, URL-deduplicated search-result candidates discovered before selector input limiting."},
+				"candidates_selected":  gin.H{"type": "integer", "minimum": 0, "description": "Validated candidate URLs approved before source extraction."},
 			}},
 		},
 	}

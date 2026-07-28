@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	operations "github.com/jcastilloa/goddgs-server/operations/domain"
 	"github.com/jcastilloa/goddgs-server/research/domain"
 	searchDomain "github.com/jcastilloa/goddgs-server/search/domain"
 	extractAIDomain "github.com/jcastilloa/goddgs-server/shared/extractai/domain"
@@ -34,12 +35,12 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 		"https://example.com/box-office": {URL: "https://example.com/box-office", Content: "<p>It opened with $11 million.</p>"},
 	}}
 	reporter := &recordingReporter{result: Report{HTML: "<article><p>Research report.</p></article>", SourceIDs: []string{"source-2"}}}
-	service := NewService(
+	service := newResearchService(
 		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "E.T. release date"}, {Language: "es", Query: "fecha estreno ET"}}},
+		&recordingSelector{},
 		searcher,
 		extractor,
 		reporter,
-		20,
 	)
 
 	got, err := service.Research(context.Background(), domain.Request{
@@ -84,6 +85,317 @@ func TestServiceResearchesGeneratedQueriesExtractsUniqueSourcesAndBuildsReport(t
 	}
 }
 
+func TestSourceFromResultNormalizesOnlySelectionMetadata(t *testing.T) {
+	candidate, ok := sourceFromResult(searchDomain.RawResult{
+		"href":          "https://example.com/source",
+		"body":          "Preferred description",
+		"description":   "Fallback description",
+		"provider_data": map[string]any{"secret": "must not reach selection"},
+	})
+	if !ok {
+		t.Fatal("sourceFromResult() ok = false")
+	}
+	if candidate.URL != "https://example.com/source" || candidate.Title != "https://example.com/source" || candidate.Description != "Preferred description" {
+		t.Errorf("candidate = %#v", candidate)
+	}
+
+	candidate, ok = sourceFromResult(searchDomain.RawResult{"url": "https://example.com/fallback", "description": "Fallback description"})
+	if !ok || candidate.Description != "Fallback description" {
+		t.Errorf("fallback candidate = %#v, ok = %v", candidate, ok)
+	}
+}
+
+func TestServiceExtractsOnlySelectedCandidatesWithoutCrawlingRejectedResults(t *testing.T) {
+	searcher := &recordingSearcher{results: map[string][]searchDomain.RawResult{
+		"query": {
+			{"href": "https://example.com/rejected", "title": "Rejected", "body": "Low relevance"},
+			{"href": "https://example.com/selected", "title": "Selected", "description": "Strong evidence"},
+			{"href": "https://example.com/excluded", "title": "Excluded", "body": "Past input budget"},
+		},
+	}}
+	selector := &recordingSelector{selection: Selection{CandidateIDs: []string{"candidate-2"}}}
+	extractor := &recordingExtractor{results: map[string]extractAIDomain.Result{
+		"https://example.com/selected": {URL: "https://example.com/selected", Content: "<p>Selected evidence</p>"},
+	}}
+	service := newResearchService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		selector,
+		searcher,
+		extractor,
+		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}},
+		withSelectionLimits(2, 1, 1),
+	)
+
+	got, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(3)})
+	if err != nil {
+		t.Fatalf("Research() error = %v", err)
+	}
+	if got.Diagnostics.CandidatesFound != 3 || got.Diagnostics.CandidatesSelected != 1 || got.Diagnostics.SourceSelectionMS < 0 {
+		t.Errorf("Diagnostics = %#v", got.Diagnostics)
+	}
+	if !reflect.DeepEqual(selector.requests, []SelectionRequest{{Query: "topic", Candidates: []SelectionCandidate{
+		{ID: "candidate-1", Title: "Rejected", Description: "Low relevance", URL: "https://example.com/rejected"},
+		{ID: "candidate-2", Title: "Selected", Description: "Strong evidence", URL: "https://example.com/selected"},
+	}}}) {
+		t.Errorf("selection requests = %#v", selector.requests)
+	}
+	if !reflect.DeepEqual(extractor.urls, []string{"https://example.com/selected"}) {
+		t.Errorf("extractions = %#v", extractor.urls)
+	}
+}
+
+func TestServiceExtractsSelectedCandidatesInSelectorOrder(t *testing.T) {
+	searcher := &recordingSearcher{results: map[string][]searchDomain.RawResult{
+		"query": {
+			{"href": "https://example.com/first", "title": "First"},
+			{"href": "https://example.com/second", "title": "Second"},
+		},
+	}}
+	selector := &recordingSelector{selection: Selection{CandidateIDs: []string{"candidate-2", "candidate-1"}}}
+	extractor := &orderedExtractor{results: map[string]extractAIDomain.Result{
+		"https://example.com/first":  {URL: "https://example.com/first", Content: "<p>First evidence</p>"},
+		"https://example.com/second": {URL: "https://example.com/second", Content: "<p>Second evidence</p>"},
+	}}
+	service := newResearchService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		selector,
+		searcher,
+		extractor,
+		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1", "source-2"}}},
+		withSelectionLimits(2, 2, 1),
+	)
+
+	got, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)})
+	if err != nil {
+		t.Fatalf("Research() error = %v", err)
+	}
+	if want := []string{"https://example.com/second", "https://example.com/first"}; !reflect.DeepEqual(extractor.urls, want) {
+		t.Errorf("extractions = %#v, want %#v", extractor.urls, want)
+	}
+	if want := []domain.Source{{URL: "https://example.com/second", Title: "Second"}, {URL: "https://example.com/first", Title: "First"}}; !reflect.DeepEqual(got.Sources, want) {
+		t.Errorf("Sources = %#v, want %#v", got.Sources, want)
+	}
+}
+
+func TestServiceRejectsInvalidSelectionsBeforeExtraction(t *testing.T) {
+	tests := []struct {
+		name      string
+		selection Selection
+		wantErr   error
+	}{
+		{name: "empty", selection: Selection{}, wantErr: domain.ErrInvalidResponse},
+		{name: "unknown", selection: Selection{CandidateIDs: []string{"unknown"}}, wantErr: domain.ErrInvalidResponse},
+		{name: "duplicate", selection: Selection{CandidateIDs: []string{"candidate-1", "candidate-1"}}, wantErr: domain.ErrInvalidResponse},
+		{name: "over budget", selection: Selection{CandidateIDs: []string{"candidate-1", "candidate-2"}}, wantErr: domain.ErrInvalidResponse},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			extractor := &recordingExtractor{}
+			service := newResearchService(
+				&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+				&recordingSelector{selection: testCase.selection},
+				&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {{"href": "https://example.com/one"}, {"href": "https://example.com/two"}}}},
+				extractor,
+				&recordingReporter{},
+				withSelectionLimits(2, 1, 1),
+			)
+			_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)})
+			if !errors.Is(err, testCase.wantErr) {
+				t.Errorf("Research() error = %v, want %v", err, testCase.wantErr)
+			}
+			if len(extractor.urls) != 0 {
+				t.Errorf("extractions = %#v, want none", extractor.urls)
+			}
+		})
+	}
+}
+
+func TestServicePropagatesSelectorFailuresBeforeExtraction(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "canceled", err: context.Canceled},
+		{name: "rate limited", err: extractAIDomain.ErrRateLimited},
+		{name: "failed", err: errors.New("selector failed")},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			extractor := &recordingExtractor{}
+			service := newResearchService(
+				&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+				&recordingSelector{err: testCase.err},
+				&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {{"href": "https://example.com/one"}}}},
+				extractor,
+				&recordingReporter{},
+			)
+
+			_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
+			if !errors.Is(err, testCase.err) {
+				t.Errorf("Research() error = %v, want %v", err, testCase.err)
+			}
+			if len(extractor.urls) != 0 {
+				t.Errorf("extractions = %#v, want none", extractor.urls)
+			}
+		})
+	}
+}
+
+func TestServiceDoesNotStartSelectionAfterSearchCancelsTheRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	selector := &recordingSelector{}
+	extractor := &recordingExtractor{}
+	service := newResearchService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		selector,
+		&recordingSearcher{
+			results:  map[string][]searchDomain.RawResult{"query": {{"href": "https://example.com/source"}}},
+			onSearch: cancel,
+		},
+		extractor,
+		&recordingReporter{},
+	)
+
+	_, err := service.Research(ctx, domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Research() error = %v, want context.Canceled", err)
+	}
+	if len(selector.requests) != 0 {
+		t.Errorf("selection requests = %#v, want none", selector.requests)
+	}
+	if len(extractor.urls) != 0 {
+		t.Errorf("extractions = %#v, want none", extractor.urls)
+	}
+}
+
+func TestServiceDoesNotStartSearchAfterPlanningCancelsTheRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	searcher := &recordingSearcher{}
+	recorder := &recordingStepRecorder{}
+	service := NewService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}, onPlan: cancel},
+		&recordingSelector{},
+		searcher,
+		&recordingExtractor{},
+		&recordingReporter{},
+		withSelectionLimits(100, 100, 20),
+		recorder,
+	)
+
+	_, err := service.Research(ctx, domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Research() error = %v, want context.Canceled", err)
+	}
+	if len(searcher.requests) != 0 {
+		t.Errorf("search requests = %#v, want none", searcher.requests)
+	}
+	if _, started := recorder.stepStart(operations.StepResearchSearch); started {
+		t.Errorf("started steps = %#v, want no research search step", recorder.starts)
+	}
+}
+
+func TestServiceDoesNotStartExtractionAfterSelectionCancelsTheRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	selector := &recordingSelector{selection: Selection{CandidateIDs: []string{"candidate-1"}}, onSelect: cancel}
+	extractor := &recordingExtractor{}
+	recorder := &recordingStepRecorder{}
+	service := NewService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		selector,
+		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {{"href": "https://example.com/source"}}}},
+		extractor,
+		&recordingReporter{},
+		withSelectionLimits(100, 100, 20),
+		recorder,
+	)
+
+	_, err := service.Research(ctx, domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Research() error = %v, want context.Canceled", err)
+	}
+	if len(extractor.urls) != 0 {
+		t.Errorf("extractions = %#v, want none", extractor.urls)
+	}
+	if _, started := recorder.stepStart(operations.StepResearchExtract); started {
+		t.Errorf("started steps = %#v, want no research extraction step", recorder.starts)
+	}
+}
+
+func TestServiceDeduplicatesFinalURLsAfterSelectedExtraction(t *testing.T) {
+	service := newResearchService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		&recordingSelector{},
+		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {
+			{"href": "https://example.com/first", "title": "First"},
+			{"href": "https://example.com/second", "title": "Second"},
+		}}},
+		&recordingExtractor{results: map[string]extractAIDomain.Result{
+			"https://example.com/first":  {URL: "https://example.com/canonical", Content: "<p>Evidence</p>"},
+			"https://example.com/second": {URL: "https://example.com/canonical", Content: "<p>Duplicate evidence</p>"},
+		}},
+		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}},
+		withSelectionLimits(2, 2, 1),
+	)
+
+	got, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)})
+	if err != nil {
+		t.Fatalf("Research() error = %v", err)
+	}
+	if want := []domain.Source{{URL: "https://example.com/canonical", Title: "First"}}; !reflect.DeepEqual(got.Sources, want) {
+		t.Errorf("Sources = %#v, want %#v", got.Sources, want)
+	}
+}
+
+func TestServiceRecordsOnlySelectionCounts(t *testing.T) {
+	recorder := &recordingStepRecorder{}
+	service := NewService(
+		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		&recordingSelector{selection: Selection{CandidateIDs: []string{"unknown"}}},
+		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {
+			{"href": "https://example.com/first", "title": "First", "description": "First description"},
+			{"href": "https://example.com/second", "title": "Second", "description": "Second description"},
+		}}},
+		&recordingExtractor{},
+		&recordingReporter{},
+		withSelectionLimits(2, 1, 1),
+		recorder,
+	)
+
+	_, err := service.Research(context.Background(), domain.Request{Query: "private topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)})
+	if !errors.Is(err, domain.ErrInvalidResponse) {
+		t.Fatalf("Research() error = %v, want ErrInvalidResponse", err)
+	}
+	start, started := recorder.stepStart(operations.StepResearchSelection)
+	finish, finished := recorder.stepFinish(operations.StepResearchSelection)
+	if !started || !finished {
+		t.Fatalf("selection step start = %v, finish = %v", started, finished)
+	}
+	if want := map[string]string{"candidates_found": "2", "candidates_submitted": "2", "candidates_selected": "0"}; !reflect.DeepEqual(start.Metadata, want) {
+		t.Errorf("selection start metadata = %#v, want %#v", start.Metadata, want)
+	}
+	if want := map[string]string{"candidates_found": "2", "candidates_submitted": "2", "candidates_selected": "0"}; !reflect.DeepEqual(finish.Metadata, want) {
+		t.Errorf("selection finish metadata = %#v, want %#v", finish.Metadata, want)
+	}
+}
+
+func TestServiceRejectsInvalidLimitsWithoutStartingWorkers(t *testing.T) {
+	service := NewService(
+		&recordingPlanner{},
+		&recordingSelector{},
+		&recordingSearcher{},
+		&recordingExtractor{},
+		&recordingReporter{},
+		Limits{},
+	)
+	_, err := service.Research(context.Background(), domain.Request{Query: "topic"})
+	if !errors.Is(err, domain.ErrUnavailable) {
+		t.Errorf("Research() error = %v, want ErrUnavailable", err)
+	}
+}
+
 func TestServiceSkipsFailedOrUnusableExtractions(t *testing.T) {
 	searcher := &recordingSearcher{results: map[string][]searchDomain.RawResult{
 		"query": {
@@ -101,7 +413,7 @@ func TestServiceSkipsFailedOrUnusableExtractions(t *testing.T) {
 		errors: map[string]error{"https://example.com/failed": errors.New("blocked")},
 	}
 	reporter := &recordingReporter{result: Report{HTML: "<p>Result</p>", SourceIDs: []string{"source-1"}}}
-	service := NewService(&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}}, searcher, extractor, reporter, 20)
+	service := newResearchService(&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}}, &recordingSelector{}, searcher, extractor, reporter)
 
 	got, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(4)})
 	if err != nil {
@@ -130,12 +442,12 @@ func TestServiceExtractsAtMostTheRequestedResultsForEachGeneratedQuery(t *testin
 		"https://example.com/two":   {URL: "https://example.com/two", Content: "<p>two</p>"},
 		"https://example.com/three": {URL: "https://example.com/three", Content: "<p>three</p>"},
 	}}
-	service := NewService(
+	service := newResearchService(
 		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "first query"}, {Language: "en", Query: "second query"}}},
+		&recordingSelector{},
 		searcher,
 		extractor,
 		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}},
-		20,
 	)
 
 	_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(2), ResultsPerQuery: intPointer(1)})
@@ -156,12 +468,13 @@ func TestServiceLimitsConcurrentExtractionsAndPreservesSourceOrder(t *testing.T)
 	}
 	extractor := newBlockingExtractor(candidates)
 	reporter := &recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}}
-	service := NewService(
+	service := newResearchService(
 		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		&recordingSelector{},
 		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": results}},
 		extractor,
 		reporter,
-		maxConcurrentExtractions,
+		withSelectionLimits(candidates, candidates, maxConcurrentExtractions),
 	)
 
 	done := make(chan error, 1)
@@ -194,15 +507,15 @@ func TestServicePropagatesCancellationBeforeWritingTheReport(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reporter := &recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}}
-	service := NewService(
+	service := newResearchService(
 		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
+		&recordingSelector{},
 		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {{"href": "https://example.com/source"}}}},
 		&recordingExtractor{
 			results:   map[string]extractAIDomain.Result{"https://example.com/source": {URL: "https://example.com/source", Content: "<p>Evidence</p>"}},
 			onExtract: cancel,
 		},
 		reporter,
-		20,
 	)
 
 	_, err := service.Research(ctx, domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
@@ -248,7 +561,7 @@ func TestServiceRejectsInvalidModelOutputAndFailsWithoutUsableSources(t *testing
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			extractor := &recordingExtractor{results: map[string]extractAIDomain.Result{"https://example.com": {URL: "https://example.com", Content: "<p>Source</p>"}}}
-			service := NewService(testCase.planner, testCase.search, extractor, testCase.report, 20)
+			service := newResearchService(testCase.planner, &recordingSelector{}, testCase.search, extractor, testCase.report)
 			_, err := service.Research(context.Background(), domain.Request{Query: "topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(1)})
 			if !errors.Is(err, testCase.wantErr) {
 				t.Errorf("Research() error = %v, want %v", err, testCase.wantErr)
@@ -260,9 +573,47 @@ func TestServiceRejectsInvalidModelOutputAndFailsWithoutUsableSources(t *testing
 type recordingPlanner struct {
 	queries []domain.GeneratedQuery
 	err     error
+	onPlan  func()
+}
+
+type recordingSelector struct {
+	requests  []SelectionRequest
+	selection Selection
+	err       error
+	onSelect  func()
+}
+
+func (s *recordingSelector) Select(_ context.Context, request SelectionRequest) (Selection, error) {
+	s.requests = append(s.requests, request)
+	if s.onSelect != nil {
+		s.onSelect()
+	}
+	if s.selection.CandidateIDs == nil && s.err == nil {
+		selection := Selection{CandidateIDs: make([]string, len(request.Candidates))}
+		for index, candidate := range request.Candidates {
+			selection.CandidateIDs[index] = candidate.ID
+		}
+		return selection, nil
+	}
+	return s.selection, s.err
+}
+
+func newResearchService(planner Planner, selector Selector, searcher Searcher, extractor Extractor, reporter Reporter, limits ...Limits) Service {
+	selectedLimits := withSelectionLimits(100, 100, 20)
+	if len(limits) > 0 {
+		selectedLimits = limits[0]
+	}
+	return NewService(planner, selector, searcher, extractor, reporter, selectedLimits)
+}
+
+func withSelectionLimits(candidates, sources, extractions int) Limits {
+	return Limits{MaxSelectionCandidates: candidates, MaxSelectedSources: sources, MaxConcurrentExtractions: extractions}
 }
 
 func (p *recordingPlanner) Plan(context.Context, domain.NormalizedRequest) ([]domain.GeneratedQuery, error) {
+	if p.onPlan != nil {
+		p.onPlan()
+	}
 	return p.queries, p.err
 }
 
@@ -275,6 +626,7 @@ type recordingSearcher struct {
 	results     map[string][]searchDomain.RawResult
 	diagnostics map[string][]searchDomain.SearchDiagnostic
 	err         error
+	onSearch    func()
 }
 
 func (s *recordingSearcher) Search(_ context.Context, request searchDomain.SearchRequest) ([]searchDomain.RawResult, error) {
@@ -283,6 +635,9 @@ func (s *recordingSearcher) Search(_ context.Context, request searchDomain.Searc
 		for _, diagnostic := range s.diagnostics[request.Query] {
 			request.Diagnostics.OnComplete(diagnostic)
 		}
+	}
+	if s.onSearch != nil {
+		s.onSearch()
 	}
 	return s.results[request.Query], s.err
 }
@@ -293,6 +648,16 @@ type recordingExtractor struct {
 	results   map[string]extractAIDomain.Result
 	errors    map[string]error
 	onExtract func()
+}
+
+type orderedExtractor struct {
+	urls    []string
+	results map[string]extractAIDomain.Result
+}
+
+func (e *orderedExtractor) Extract(_ context.Context, request extractAIDomain.Request) (extractAIDomain.Result, error) {
+	e.urls = append(e.urls, request.URL)
+	return e.results[request.URL], nil
 }
 
 func (e *recordingExtractor) Extract(_ context.Context, request extractAIDomain.Request) (extractAIDomain.Result, error) {
@@ -309,6 +674,39 @@ type recordingReporter struct {
 	requests []ReportRequest
 	result   Report
 	err      error
+}
+
+type recordingStepRecorder struct {
+	starts   []operations.StepStart
+	finishes []operations.Step
+}
+
+func (r *recordingStepRecorder) StartStep(_ context.Context, start operations.StepStart) (operations.Step, error) {
+	r.starts = append(r.starts, start)
+	return operations.Step{ID: "step", Type: start.Type, Metadata: start.Metadata}, nil
+}
+
+func (r *recordingStepRecorder) FinishStep(_ context.Context, step operations.Step, _ error) error {
+	r.finishes = append(r.finishes, step)
+	return nil
+}
+
+func (r *recordingStepRecorder) stepStart(stepType operations.StepType) (operations.StepStart, bool) {
+	for _, start := range r.starts {
+		if start.Type == stepType {
+			return start, true
+		}
+	}
+	return operations.StepStart{}, false
+}
+
+func (r *recordingStepRecorder) stepFinish(stepType operations.StepType) (operations.Step, bool) {
+	for _, step := range r.finishes {
+		if step.Type == stepType {
+			return step, true
+		}
+	}
+	return operations.Step{}, false
 }
 
 func (r *recordingReporter) Write(_ context.Context, request ReportRequest) (Report, error) {

@@ -104,6 +104,36 @@ func TestEventRecorderCorrelatesOperationsAndSteps(t *testing.T) {
 	}
 }
 
+func TestEventRecorderSanitizesMetadataAddedBeforeFinishingStep(t *testing.T) {
+	repository := &recordingRepository{}
+	recorder := NewEventRecorder(repository, time.Now, func() string { return "operation-1" })
+	ctx, err := recorder.StartOperation(context.Background(), operations.OperationStart{Type: operations.OperationResearch})
+	if err != nil {
+		t.Fatalf("StartOperation() error = %v", err)
+	}
+	step, err := recorder.StartStep(ctx, operations.StepStart{Type: operations.StepResearchSelection, Metadata: map[string]string{"candidates_found": "2"}})
+	if err != nil {
+		t.Fatalf("StartStep() error = %v", err)
+	}
+	step.Metadata = map[string]string{
+		"candidates_found":    "2",
+		"candidates_selected": "1",
+		"url":                 "https://user:password@example.com/source",
+		"response":            "full completion response",
+	}
+	if err := recorder.FinishStep(ctx, step, errors.New("selector response was invalid")); err != nil {
+		t.Fatalf("FinishStep() error = %v", err)
+	}
+
+	got := repository.steps[0].Metadata
+	if got["candidates_found"] != "2" || got["candidates_selected"] != "1" || got["url"] != "https://example.com/source" {
+		t.Errorf("metadata = %#v", got)
+	}
+	if _, exists := got["response"]; exists {
+		t.Errorf("metadata = %#v, persisted completion response", got)
+	}
+}
+
 func httpSuccess(status int) operations.OperationFinish {
 	return operations.OperationFinish{HTTPStatus: status}
 }

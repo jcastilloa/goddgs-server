@@ -39,11 +39,18 @@ extract_ai:
 research:
   timeout: 8m
   max_concurrent_extractions: 20
+  max_selection_candidates: 75
+  max_selected_sources: 15
   query_ai:
     model: gpt-4.1-mini
     timeout: 25s
     temperature: 0.2
     retries: 1
+  selection_ai:
+    model: gpt-4.1-nano
+    timeout: 35s
+    temperature: 0.4
+    retries: 2
   report_ai:
     model: gpt-4.1
     timeout: 55s
@@ -107,7 +114,7 @@ proxies:
 	if got.ExtractAI.Model != "gpt-4.1-mini" || got.ExtractAI.Timeout.String() != "45s" || got.ExtractAI.Temperature != 0.15 || got.ExtractAI.Retries != 2 {
 		t.Errorf("ExtractAI = %#v", got.ExtractAI)
 	}
-	if got.Research.Timeout.String() != "8m0s" || got.Research.MaxConcurrentExtractions != 20 || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
+	if got.Research.Timeout.String() != "8m0s" || got.Research.MaxConcurrentExtractions != 20 || got.Research.MaxSelectionCandidates != 75 || got.Research.MaxSelectedSources != 15 || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.SelectionAI.Model != "gpt-4.1-nano" || got.Research.SelectionAI.Timeout.String() != "35s" || got.Research.SelectionAI.Temperature != 0.4 || got.Research.SelectionAI.Retries != 2 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
 		t.Errorf("Research = %#v", got.Research)
 	}
 	if got.Operations.DatabasePath != "/var/lib/goddgs/operations.sqlite" || got.Operations.Retention != 48*time.Hour {

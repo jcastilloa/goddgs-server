@@ -43,7 +43,10 @@ func TestServerConfigResearchConfigurationRequiresSeparateResearchSettings(t *te
 		Research: ResearchConfig{
 			Timeout:                  2 * time.Minute,
 			MaxConcurrentExtractions: 20,
+			MaxSelectionCandidates:   100,
+			MaxSelectedSources:       20,
 			QueryAI:                  ResearchAIConfig{Model: "query", Timeout: time.Second},
+			SelectionAI:              ResearchAIConfig{Model: "selection", Timeout: time.Second},
 			ReportAI:                 ResearchAIConfig{Model: "report", Timeout: time.Second},
 		},
 	}
@@ -56,6 +59,21 @@ func TestServerConfigResearchConfigurationRequiresSeparateResearchSettings(t *te
 		t.Errorf("ResearchConfigurationError() = %v", err)
 	}
 	configuration.Research.MaxConcurrentExtractions = 20
+	configuration.Research.MaxSelectionCandidates = 0
+	if err := configuration.ResearchConfigurationError(); err == nil || err.Error() != "invalid configuration: research max selection candidates must be positive" {
+		t.Errorf("ResearchConfigurationError() = %v", err)
+	}
+	configuration.Research.MaxSelectionCandidates = 100
+	configuration.Research.MaxSelectedSources = 0
+	if err := configuration.ResearchConfigurationError(); err == nil || err.Error() != "invalid configuration: research max selected sources must be positive" {
+		t.Errorf("ResearchConfigurationError() = %v", err)
+	}
+	configuration.Research.MaxSelectedSources = 20
+	configuration.Research.SelectionAI.Timeout = 0
+	if err := configuration.ResearchConfigurationError(); err == nil || err.Error() != "invalid configuration: research selection AI timeout must be positive" {
+		t.Errorf("ResearchConfigurationError() = %v", err)
+	}
+	configuration.Research.SelectionAI.Timeout = time.Second
 	configuration.Research.ReportAI.Timeout = 0
 	if err := configuration.ResearchConfigurationError(); err == nil || err.Error() != "invalid configuration: research report AI timeout must be positive" {
 		t.Errorf("ResearchConfigurationError() = %v", err)

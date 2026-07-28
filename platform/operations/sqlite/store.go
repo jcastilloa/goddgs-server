@@ -159,10 +159,17 @@ INSERT INTO operation_steps (step_id, operation_id, name, type, status, started_
 }
 
 func (s *Store) FinishStep(ctx context.Context, step operations.Step) error {
-	_, err := s.db.ExecContext(ctx, `
+	query := `
 UPDATE operation_steps
-SET status = ?, finished_at = ?, duration_ms = ?, result = ?
-WHERE step_id = ?`, step.Status, nullableTimestamp(step.FinishedAt), nullableInt64(step.DurationMS), nullableString(string(step.Result)), step.ID)
+SET status = ?, finished_at = ?, duration_ms = ?, result = ?`
+	arguments := []any{step.Status, nullableTimestamp(step.FinishedAt), nullableInt64(step.DurationMS), nullableString(string(step.Result))}
+	if step.Metadata != nil {
+		query += `, metadata = ?`
+		arguments = append(arguments, metadata(step.Metadata))
+	}
+	query += ` WHERE step_id = ?`
+	arguments = append(arguments, step.ID)
+	_, err := s.db.ExecContext(ctx, query, arguments...)
 	return wrapWriteError("finish operation step", err)
 }
 

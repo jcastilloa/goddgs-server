@@ -31,6 +31,26 @@ type Reporter interface {
 	Write(context.Context, ReportRequest) (Report, error)
 }
 
+type Selector interface {
+	Select(context.Context, SelectionRequest) (Selection, error)
+}
+
+type SelectionCandidate struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+}
+
+type SelectionRequest struct {
+	Query      string               `json:"query"`
+	Candidates []SelectionCandidate `json:"candidates"`
+}
+
+type Selection struct {
+	CandidateIDs []string `json:"candidate_ids"`
+}
+
 type StepRecorder interface {
 	StartStep(context.Context, operations.StepStart) (operations.Step, error)
 	FinishStep(context.Context, operations.Step, error) error
@@ -56,25 +76,37 @@ type Report struct {
 
 type Service struct {
 	planner                  Planner
+	selector                 Selector
 	searcher                 Searcher
 	extractor                Extractor
 	reporter                 Reporter
 	recorder                 StepRecorder
+	maxSelectionCandidates   int
+	maxSelectedSources       int
 	maxConcurrentExtractions int
 }
 
-func NewService(planner Planner, searcher Searcher, extractor Extractor, reporter Reporter, maxConcurrentExtractions int, recorders ...StepRecorder) Service {
+type Limits struct {
+	MaxSelectionCandidates   int
+	MaxSelectedSources       int
+	MaxConcurrentExtractions int
+}
+
+func NewService(planner Planner, selector Selector, searcher Searcher, extractor Extractor, reporter Reporter, limits Limits, recorders ...StepRecorder) Service {
 	var recorder StepRecorder
 	if len(recorders) > 0 {
 		recorder = recorders[0]
 	}
 	return Service{
 		planner:                  planner,
+		selector:                 selector,
 		searcher:                 searcher,
 		extractor:                extractor,
 		reporter:                 reporter,
 		recorder:                 recorder,
-		maxConcurrentExtractions: maxConcurrentExtractions,
+		maxSelectionCandidates:   limits.MaxSelectionCandidates,
+		maxSelectedSources:       limits.MaxSelectedSources,
+		maxConcurrentExtractions: limits.MaxConcurrentExtractions,
 	}
 }
 
@@ -86,7 +118,7 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 	if err != nil {
 		return domain.Result{}, err
 	}
-	if s.planner == nil || s.searcher == nil || s.extractor == nil || s.reporter == nil {
+	if s.planner == nil || s.selector == nil || s.searcher == nil || s.extractor == nil || s.reporter == nil || s.maxSelectionCandidates <= 0 || s.maxSelectedSources <= 0 || s.maxConcurrentExtractions <= 0 {
 		return domain.Result{}, domain.ErrUnavailable
 	}
 
@@ -101,14 +133,29 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 	if err := validateQueries(normalized, queries); err != nil {
 		return domain.Result{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return domain.Result{}, err
+	}
 	planningDuration := time.Since(planningStartedAt)
 
 	diagnostics := newDiagnostics()
 	searchStartedAt := time.Now()
-	urls := s.searchURLs(ctx, normalized, queries, diagnostics)
+	discovered := s.searchURLs(ctx, normalized, queries, diagnostics)
 	searchDuration := time.Since(searchStartedAt)
+	if err := ctx.Err(); err != nil {
+		return domain.Result{}, err
+	}
+	selectionStartedAt := time.Now()
+	selected, err := s.selectCandidates(ctx, normalized, discovered)
+	selectionDuration := time.Since(selectionStartedAt)
+	if err != nil {
+		return domain.Result{}, fmt.Errorf("select research sources: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return domain.Result{}, err
+	}
 	extractionStartedAt := time.Now()
-	sources := s.extractedSources(ctx, urls)
+	sources := s.extractedSources(ctx, selected)
 	extractionDuration := time.Since(extractionStartedAt)
 	if err := ctx.Err(); err != nil {
 		return domain.Result{}, err
@@ -128,11 +175,99 @@ func (s Service) Research(ctx context.Context, request domain.Request) (domain.R
 	result.Diagnostics = diagnostics.result(
 		planningDuration,
 		searchDuration,
+		selectionDuration,
 		extractionDuration,
 		time.Since(reportStartedAt),
 		time.Since(startedAt),
+		len(discovered),
+		len(selected),
 	)
 	return result, nil
+}
+
+func (s Service) selectCandidates(ctx context.Context, request domain.NormalizedRequest, discovered []candidateSource) ([]candidateSource, error) {
+	candidates := selectionCandidates(discovered, s.maxSelectionCandidates)
+	if len(candidates) == 0 {
+		return nil, domain.ErrNoUsableSources
+	}
+	return s.recordSelection(ctx, request.Query, candidates, len(discovered))
+}
+
+func selectionCandidates(discovered []candidateSource, maximum int) []candidateSource {
+	if maximum <= 0 {
+		return nil
+	}
+	limit := min(len(discovered), maximum)
+	candidates := make([]candidateSource, limit)
+	for index := range candidates {
+		candidates[index] = discovered[index]
+		candidates[index].ID = fmt.Sprintf("candidate-%d", index+1)
+	}
+	return candidates
+}
+
+func (s Service) recordSelection(ctx context.Context, query string, candidates []candidateSource, candidatesFound int) ([]candidateSource, error) {
+	if s.recorder == nil {
+		selection, err := s.selector.Select(ctx, selectionRequest(query, candidates))
+		if err != nil {
+			return nil, err
+		}
+		return validateSelection(candidates, selection, s.maxSelectedSources)
+	}
+	step, _ := s.recorder.StartStep(ctx, operations.StepStart{Type: operations.StepResearchSelection, Metadata: selectionMetadata(candidatesFound, len(candidates), 0)})
+	selection, err := s.selector.Select(ctx, selectionRequest(query, candidates))
+	selected := []candidateSource(nil)
+	if err == nil {
+		selected, err = validateSelection(candidates, selection, s.maxSelectedSources)
+	}
+	step.Metadata = selectionMetadata(candidatesFound, len(candidates), len(selected))
+	if finishErr := s.recorder.FinishStep(ctx, step, err); finishErr != nil && err == nil {
+		return nil, finishErr
+	}
+	return selected, err
+}
+
+func selectionMetadata(candidatesFound, candidatesSubmitted, candidatesSelected int) map[string]string {
+	return map[string]string{
+		"candidates_found":     fmt.Sprintf("%d", candidatesFound),
+		"candidates_submitted": fmt.Sprintf("%d", candidatesSubmitted),
+		"candidates_selected":  fmt.Sprintf("%d", candidatesSelected),
+	}
+}
+
+func selectionRequest(query string, candidates []candidateSource) SelectionRequest {
+	request := SelectionRequest{Query: query, Candidates: make([]SelectionCandidate, len(candidates))}
+	for index, candidate := range candidates {
+		request.Candidates[index] = SelectionCandidate{ID: candidate.ID, Title: candidate.Title, Description: candidate.Description, URL: candidate.URL}
+	}
+	return request
+}
+
+func validateSelection(candidates []candidateSource, selection Selection, maximum int) ([]candidateSource, error) {
+	if len(selection.CandidateIDs) == 0 {
+		return nil, fmt.Errorf("%w: source selection is empty", domain.ErrInvalidResponse)
+	}
+	if len(selection.CandidateIDs) > maximum {
+		return nil, fmt.Errorf("%w: source selection exceeds maximum", domain.ErrInvalidResponse)
+	}
+	byID := make(map[string]candidateSource, len(candidates))
+	for _, candidate := range candidates {
+		byID[candidate.ID] = candidate
+	}
+	selected := make([]candidateSource, 0, len(selection.CandidateIDs))
+	seen := make(map[string]struct{}, len(selection.CandidateIDs))
+	for _, id := range selection.CandidateIDs {
+		candidate, exists := byID[id]
+		if !exists {
+			return nil, fmt.Errorf("%w: source selection references an unknown candidate", domain.ErrInvalidResponse)
+		}
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("%w: source selection references a candidate more than once", domain.ErrInvalidResponse)
+		}
+		seen[id] = struct{}{}
+		selected = append(selected, candidate)
+	}
+	return selected, nil
 }
 
 func validateQueries(request domain.NormalizedRequest, queries []domain.GeneratedQuery) error {
@@ -335,7 +470,7 @@ func (d *researchDiagnostics) record(diagnostic searchDomain.SearchDiagnostic) {
 	d.backends[diagnostic.Backend] = backend
 }
 
-func (d *researchDiagnostics) result(planning, search, extraction, report, total time.Duration) domain.Diagnostics {
+func (d *researchDiagnostics) result(planning, search, selection, extraction, report, total time.Duration, candidatesFound, candidatesSelected int) domain.Diagnostics {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	backends := make([]domain.BackendDiagnostic, 0, len(d.backends))
@@ -346,17 +481,22 @@ func (d *researchDiagnostics) result(planning, search, extraction, report, total
 		Backends:           backends,
 		QueryPlanningMS:    planning.Milliseconds(),
 		SearchMS:           search.Milliseconds(),
+		SourceSelectionMS:  selection.Milliseconds(),
 		SourceExtractionMS: extraction.Milliseconds(),
 		ReportGenerationMS: report.Milliseconds(),
 		TotalMS:            total.Milliseconds(),
+		CandidatesFound:    candidatesFound,
+		CandidatesSelected: candidatesSelected,
 	}
 	result.SortBackends()
 	return result
 }
 
 type candidateSource struct {
-	URL   string
-	Title string
+	ID          string
+	URL         string
+	Title       string
+	Description string
 }
 
 func sourceFromResult(result searchDomain.RawResult) (candidateSource, bool) {
@@ -371,7 +511,11 @@ func sourceFromResult(result searchDomain.RawResult) (candidateSource, bool) {
 	if title == "" {
 		title = urlValue
 	}
-	return candidateSource{URL: urlValue, Title: title}, true
+	description := stringValue(result["body"])
+	if description == "" {
+		description = stringValue(result["description"])
+	}
+	return candidateSource{URL: urlValue, Title: title, Description: description}, true
 }
 
 func buildResult(report Report, sources []ReportSource) (domain.Result, error) {

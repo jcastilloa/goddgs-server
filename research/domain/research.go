@@ -58,9 +58,12 @@ type Diagnostics struct {
 	Backends           []BackendDiagnostic `json:"backends"`
 	QueryPlanningMS    int64               `json:"query_planning_ms"`
 	SearchMS           int64               `json:"search_ms"`
+	SourceSelectionMS  int64               `json:"source_selection_ms"`
 	SourceExtractionMS int64               `json:"source_extraction_ms"`
 	ReportGenerationMS int64               `json:"report_generation_ms"`
 	TotalMS            int64               `json:"total_ms"`
+	CandidatesFound    int                 `json:"candidates_found"`
+	CandidatesSelected int                 `json:"candidates_selected"`
 }
 
 type BackendDiagnostic struct {

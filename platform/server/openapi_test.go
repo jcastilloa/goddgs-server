@@ -235,7 +235,7 @@ func assertResearchDocumentation(t *testing.T, paths map[string]any) {
 		t.Fatalf("research operation = %#v", path)
 	}
 	description := operation["description"].(string)
-	if !containsAll(description, "query_count × results_per_query", "en → us-en", "es → es-es", "omitted silently", "research.query_ai.*", "diagnostics", "source page downloads") {
+	if !containsAll(description, "query_count × results_per_query", "candidate ID, title, description, and URL", "not crawled", "research.selection_ai.*", "research.max_selection_candidates", "research.max_selected_sources", "source_selection_ms", "candidates_found", "candidates_selected") {
 		t.Errorf("research description = %q", description)
 	}
 	requestBody := operation["requestBody"].(map[string]any)
@@ -261,7 +261,7 @@ func assertResearchDocumentation(t *testing.T, paths map[string]any) {
 	}
 	responseSchema := responses["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
 	diagnostics := responseSchema["properties"].(map[string]any)["diagnostics"].(map[string]any)
-	for _, field := range []string{"backends", "query_planning_ms", "search_ms", "source_extraction_ms", "report_generation_ms", "total_ms"} {
+	for _, field := range []string{"backends", "query_planning_ms", "search_ms", "source_selection_ms", "source_extraction_ms", "report_generation_ms", "total_ms", "candidates_found", "candidates_selected"} {
 		if diagnostics["properties"].(map[string]any)[field] == nil {
 			t.Errorf("research diagnostics = %#v, missing %s", diagnostics, field)
 		}

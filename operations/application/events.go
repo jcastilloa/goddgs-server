@@ -104,6 +104,7 @@ func (r EventRecorder) FinishStep(ctx context.Context, step operations.Step, ste
 	if r.repository == nil || step.ID == "" {
 		return nil
 	}
+	step.Metadata = SanitizeMetadata(step.Metadata)
 	finishedAt := r.now().UTC()
 	result := resultFor(stepErr)
 	step.Status = statusFor(result)
