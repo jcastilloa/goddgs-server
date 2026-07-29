@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -90,6 +91,7 @@ type Operation struct {
 	HTTPPath   string            `json:"http_path,omitempty"`
 	HTTPStatus int               `json:"http_status,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
+	Details    json.RawMessage   `json:"details,omitempty"`
 }
 
 type Step struct {
@@ -106,6 +108,7 @@ type Step struct {
 	Backend     string            `json:"backend,omitempty"`
 	Proxy       string            `json:"proxy,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+	Details     json.RawMessage   `json:"details,omitempty"`
 }
 
 type OperationError struct {
@@ -121,6 +124,7 @@ type OperationStart struct {
 	Method   string
 	Path     string
 	Metadata map[string]string
+	Details  json.RawMessage
 }
 
 type OperationFinish struct {
@@ -134,6 +138,7 @@ type StepStart struct {
 	Backend  string
 	Proxy    string
 	Metadata map[string]string
+	Details  json.RawMessage
 }
 
 type ProxyProbe struct {

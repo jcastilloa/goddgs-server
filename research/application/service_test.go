@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"sort"
@@ -349,24 +350,23 @@ func TestServiceDeduplicatesFinalURLsAfterSelectedExtraction(t *testing.T) {
 	}
 }
 
-func TestServiceRecordsOnlySelectionCounts(t *testing.T) {
+func TestServiceRecordsSelectionArtifacts(t *testing.T) {
 	recorder := &recordingStepRecorder{}
 	service := NewService(
 		&recordingPlanner{queries: []domain.GeneratedQuery{{Language: "en", Query: "query"}}},
-		&recordingSelector{selection: Selection{CandidateIDs: []string{"unknown"}}},
+		&recordingSelector{selection: Selection{CandidateIDs: []string{"candidate-2"}}},
 		&recordingSearcher{results: map[string][]searchDomain.RawResult{"query": {
 			{"href": "https://example.com/first", "title": "First", "description": "First description"},
 			{"href": "https://example.com/second", "title": "Second", "description": "Second description"},
 		}}},
-		&recordingExtractor{},
-		&recordingReporter{},
+		&recordingExtractor{results: map[string]extractAIDomain.Result{"https://example.com/second": {URL: "https://example.com/second", Content: "<p>Evidence</p>"}}},
+		&recordingReporter{result: Report{HTML: "<p>Report</p>", SourceIDs: []string{"source-1"}}},
 		withSelectionLimits(2, 1, 1),
 		recorder,
 	)
 
-	_, err := service.Research(context.Background(), domain.Request{Query: "private topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)})
-	if !errors.Is(err, domain.ErrInvalidResponse) {
-		t.Fatalf("Research() error = %v, want ErrInvalidResponse", err)
+	if _, err := service.Research(context.Background(), domain.Request{Query: "private topic", QueryCount: intPointer(1), ResultsPerQuery: intPointer(2)}); err != nil {
+		t.Fatalf("Research() error = %v", err)
 	}
 	start, started := recorder.stepStart(operations.StepResearchSelection)
 	finish, finished := recorder.stepFinish(operations.StepResearchSelection)
@@ -376,8 +376,44 @@ func TestServiceRecordsOnlySelectionCounts(t *testing.T) {
 	if want := map[string]string{"candidates_found": "2", "candidates_submitted": "2", "candidates_selected": "0"}; !reflect.DeepEqual(start.Metadata, want) {
 		t.Errorf("selection start metadata = %#v, want %#v", start.Metadata, want)
 	}
-	if want := map[string]string{"candidates_found": "2", "candidates_submitted": "2", "candidates_selected": "0"}; !reflect.DeepEqual(finish.Metadata, want) {
+	if want := map[string]string{"candidates_found": "2", "candidates_submitted": "2", "candidates_selected": "1"}; !reflect.DeepEqual(finish.Metadata, want) {
 		t.Errorf("selection finish metadata = %#v, want %#v", finish.Metadata, want)
+	}
+	assertSelectionDetails(t, start.Details, `{
+  "selection_request": {
+    "query": "private topic",
+    "candidates": [
+      {"id": "candidate-1", "title": "First", "description": "First description", "url": "https://example.com/first"},
+      {"id": "candidate-2", "title": "Second", "description": "Second description", "url": "https://example.com/second"}
+    ]
+  }
+}`)
+	assertSelectionDetails(t, finish.Details, `{
+  "selection_request": {
+    "query": "private topic",
+    "candidates": [
+      {"id": "candidate-1", "title": "First", "description": "First description", "url": "https://example.com/first"},
+      {"id": "candidate-2", "title": "Second", "description": "Second description", "url": "https://example.com/second"}
+    ]
+  },
+  "selection_response": {"candidate_ids": ["candidate-2"]},
+  "selected_candidates": [
+    {"id": "candidate-2", "title": "Second", "description": "Second description", "url": "https://example.com/second"}
+  ]
+}`)
+}
+
+func assertSelectionDetails(t *testing.T, got []byte, want string) {
+	t.Helper()
+	var actual, expected any
+	if err := json.Unmarshal(got, &actual); err != nil {
+		t.Fatalf("decode recorded details: %v", err)
+	}
+	if err := json.Unmarshal([]byte(want), &expected); err != nil {
+		t.Fatalf("decode expected details: %v", err)
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Errorf("selection details = %#v, want %#v", actual, expected)
 	}
 }
 

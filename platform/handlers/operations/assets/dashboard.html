@@ -41,9 +41,9 @@
         radial-gradient(circle at 100% 0%, rgba(123, 73, 255, .17), transparent 29rem),
         var(--canvas);
     }
-    button, select { font: inherit; }
+    button, input, select { font: inherit; }
     button { cursor: pointer; }
-    button:focus-visible, select:focus-visible {
+    button:focus-visible, input:focus-visible, select:focus-visible {
       outline: 3px solid rgba(103, 168, 255, .55);
       outline-offset: 2px;
     }
@@ -145,6 +145,38 @@
     .detail-stat strong { display: block; overflow: hidden; color: #dceafe; font-size: .76rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
     .detail-section { margin-top: 16px; }
     .detail-section h3 { margin: 0 0 9px; color: #c9d9f3; font-size: .74rem; letter-spacing: .07em; text-transform: uppercase; }
+    .json-viewer-access { width: 100%; justify-content: center; }
+    .json-viewer-dialog { display: none; }
+    .json-viewer-dialog[open] { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 24px; border: 0; background: rgba(3, 7, 16, .78); }
+    .json-viewer-dialog::backdrop { background: rgba(3, 7, 16, .78); }
+    html.json-viewer-open, body.json-viewer-open { overflow: hidden; }
+    .json-viewer-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(1180px, 100%); height: min(860px, calc(100vh - 48px)); border: 1px solid var(--line-strong); border-radius: 16px; overflow: hidden; background: #0b1327; box-shadow: 0 28px 80px rgba(0, 0, 0, .48); }
+    .json-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .json-viewer-head h2 { margin: 0 0 3px; color: var(--ink); font-size: 1rem; }
+    .json-viewer-head p { margin: 0; color: var(--muted); font-size: .74rem; }
+    #json-viewer-content { min-height: 0; overflow: hidden; }
+    .json-viewer { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; height: 100%; min-height: 0; box-sizing: border-box; padding: 14px 18px 18px; }
+    .json-viewer-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    .json-search { flex: 1 1 320px; min-width: 0; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; color: var(--ink); background: rgba(7, 13, 28, .72); font-size: .78rem; }
+    .json-search::placeholder { color: var(--faint); }
+    .json-viewer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+    .json-viewer-action { min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; color: var(--muted); background: rgba(148, 163, 184, .06); font-size: .72rem; font-weight: 740; }
+    .json-viewer-action:hover { border-color: rgba(103, 168, 255, .54); color: #dceafe; background: var(--primary-soft); }
+    .json-search-status { flex: 1 1 100%; min-height: 15px; color: var(--faint); font-size: .67rem; }
+    .json-tree { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 7px; border: 1px solid rgba(148, 163, 184, .1); border-radius: 8px; background: rgba(4, 9, 20, .42); color: #c9d9f3; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; line-height: 1.55; }
+    .json-container > summary { display: flex; align-items: baseline; gap: 7px; padding: 5px 4px; border-radius: 5px; cursor: pointer; list-style-position: outside; }
+    .json-container > summary:hover { background: rgba(103, 168, 255, .08); }
+    .json-container > summary::marker { color: var(--primary); }
+    .json-children { display: grid; gap: 2px; margin: 0 0 2px 11px; padding-left: 8px; border-left: 1px solid rgba(148, 163, 184, .2); }
+    .json-primitive { display: flex; align-items: baseline; gap: 7px; min-width: 0; padding: 4px; border-radius: 5px; word-break: break-word; }
+    .json-key { flex: 0 0 auto; color: #a9c9ff; font-weight: 700; }
+    .json-node-type { color: var(--faint); font-size: .65rem; }
+    .json-value { min-width: 0; color: #dceafe; white-space: pre-wrap; }
+    .json-value.string { color: #bdeccf; }.json-value.number { color: #f9cc8a; }.json-value.boolean { color: #cbb9ff; }.json-value.null { color: var(--faint); }
+    .json-match > summary, .json-primitive.json-match { background: rgba(251, 191, 92, .15); box-shadow: inset 2px 0 var(--warning); }
+    .json-current-match > summary, .json-primitive.json-current-match { background: rgba(103, 168, 255, .2); box-shadow: inset 2px 0 var(--primary); }
+    .json-raw { min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0; padding: 9px; border: 1px solid rgba(148, 163, 184, .1); border-radius: 8px; color: #c9d9f3; background: rgba(4, 9, 20, .42); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .json-empty { padding: 16px; color: var(--muted); text-align: center; }
     .timeline { display: grid; gap: 8px; }
     .timeline-item, .error-item, .metadata-item { padding: 10px; border-left: 2px solid rgba(103, 168, 255, .44); border-radius: 0 9px 9px 0; background: rgba(148, 163, 184, .06); }
     .timeline-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #dceafe; font-size: .78rem; font-weight: 700; }
@@ -158,7 +190,7 @@
     .proxy-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.proxy-chart { height: 240px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 13, 28, .38); }.proxy-chart .chart-area { height: 180px; }
     footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; color: var(--faint); font-size: .72rem; }
     @media (max-width: 1160px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.operations-layout { grid-template-columns: 1fr; }.inspector { position: static; }.chart-grid { grid-template-columns: 1fr; } }
-    @media (max-width: 720px) { .shell { width: min(100% - 28px, 1440px); padding-top: 22px; }.page-header, .status-strip, .section-toolbar { align-items: stretch; flex-direction: column; }.header-actions, .filters { justify-content: flex-start; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.kpi { min-height: 126px; }.status-strip { gap: 10px; }.freshness { align-self: flex-start; }.chart-card { min-height: 330px; padding: 16px; }.chart-area { height: 235px; }.table-wrap { overflow-x: auto; } table { min-width: 680px; }.proxy-chart-grid { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 720px) { .shell { width: min(100% - 28px, 1440px); padding-top: 22px; }.page-header, .status-strip, .section-toolbar { align-items: stretch; flex-direction: column; }.header-actions, .filters { justify-content: flex-start; }.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.kpi { min-height: 126px; }.status-strip { gap: 10px; }.freshness { align-self: flex-start; }.chart-card { min-height: 330px; padding: 16px; }.chart-area { height: 235px; }.table-wrap { overflow-x: auto; } table { min-width: 680px; }.proxy-chart-grid { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; }.json-viewer-dialog { padding: 12px; }.json-viewer-panel { max-height: calc(100vh - 24px); }.json-viewer-head { padding: 13px; }.json-viewer { padding: 12px; }.json-viewer-actions { width: 100%; }.json-viewer-action { flex: 1 1 auto; } }
   </style>
 </head>
 <body>
@@ -247,6 +279,7 @@
   </main>
 
   <div id="password-dialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="password-title"><section class="password-dialog"><h2 id="password-title">Change password</h2><p>Changing your password signs out other dashboard sessions.</p><form id="password-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><p id="password-error" class="alert hidden" role="alert"></p><div class="dialog-actions"><button id="cancel-password" class="button" type="button">Cancel</button><button id="save-password" class="button" type="submit">Save password</button></div></form></section></div>
+  <dialog id="json-viewer-dialog" class="json-viewer-dialog" aria-labelledby="json-viewer-title"><section class="json-viewer-panel"><header class="json-viewer-head"><div><h2 id="json-viewer-title">Recorded JSON</h2><p>All fields are preserved. Search keys or values to isolate matching branches.</p></div><button id="close-json-viewer" class="icon-button" type="button" aria-label="Close JSON viewer">×</button></header><div id="json-viewer-content"></div></section></dialog>
 
   <script>
     const state = { range: '24h', status: '', type: '', operations: [], total: 0, refreshing: false, selectedOperationID: null };
@@ -523,6 +556,163 @@
       section.className = 'detail-section'; heading.textContent = title; section.append(heading, content); return section;
     }
 
+    function jsonDetails(data) {
+      const button = document.createElement('button');
+      button.className = 'button json-viewer-access'; button.type = 'button'; button.textContent = 'Open JSON viewer'; button.onclick = () => openJSONViewer(data); return button;
+    }
+
+    function openJSONViewer(data) {
+      const dialog = document.querySelector('#json-viewer-dialog');
+      const content = document.querySelector('#json-viewer-content');
+      content.replaceChildren(jsonViewer(data)); dialog.showModal(); setJSONViewerScrollLock(true); dialog.querySelector('.json-search').focus();
+    }
+
+    function closeJSONViewer() {
+      document.querySelector('#json-viewer-dialog').close(); setJSONViewerScrollLock(false);
+    }
+
+    function setJSONViewerScrollLock(locked) {
+      document.documentElement.classList.toggle('json-viewer-open', locked);
+      document.body.classList.toggle('json-viewer-open', locked);
+    }
+
+    function jsonViewer(data) {
+      const viewer = document.createElement('div');
+      const toolbar = document.createElement('div');
+      const search = document.createElement('input');
+      const actions = document.createElement('div');
+      const previous = jsonViewerAction('Previous');
+      const next = jsonViewerAction('Next');
+      const expand = jsonViewerAction('Expand all');
+      const collapse = jsonViewerAction('Collapse all');
+      const copy = jsonViewerAction('Copy JSON');
+      const raw = jsonViewerAction('Raw JSON');
+      const status = document.createElement('div');
+      const tree = document.createElement('div');
+      viewer.className = 'json-viewer'; toolbar.className = 'json-viewer-toolbar'; search.className = 'json-search'; search.type = 'search'; search.placeholder = 'Search JSON'; search.setAttribute('aria-label', 'Search JSON'); actions.className = 'json-viewer-actions'; status.className = 'json-search-status'; status.setAttribute('aria-live', 'polite'); tree.className = 'json-tree'; tree.setAttribute('role', 'tree');
+      tree.append(renderJSONNode(data, 'root'));
+      search.oninput = () => filterJSONViewer(tree, search.value, status, 0);
+      search.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); filterJSONViewer(tree, search.value, status, event.shiftKey ? -1 : 1); } };
+      previous.onclick = () => filterJSONViewer(tree, search.value, status, -1);
+      next.onclick = () => filterJSONViewer(tree, search.value, status, 1);
+      expand.onclick = () => setJSONTreeExpanded(tree, true);
+      collapse.onclick = () => setJSONTreeExpanded(tree, false);
+      copy.onclick = () => copyJSON(data, copy);
+      raw.onclick = () => toggleRawJSON(tree, data, raw);
+      actions.append(previous, next, expand, collapse, copy, raw); toolbar.append(search, actions); viewer.append(toolbar, status, tree); return viewer;
+    }
+
+    function jsonViewerAction(label) {
+      const button = document.createElement('button');
+      button.className = 'json-viewer-action'; button.type = 'button'; button.textContent = label; return button;
+    }
+
+    function renderJSONNode(value, key) {
+      return isJSONContainer(value) ? renderJSONContainer(value, key) : renderJSONPrimitive(value, key);
+    }
+
+    function isJSONContainer(value) {
+      return value !== null && typeof value === 'object';
+    }
+
+    function renderJSONContainer(value, key) {
+      const node = document.createElement('details');
+      const summary = document.createElement('summary');
+      const children = document.createElement('div');
+      const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
+      node.className = 'json-container'; node.open = key === 'root'; node.setAttribute('role', 'treeitem'); summary.append(jsonKey(key), jsonNodeType(value, entries.length)); children.className = 'json-children'; children.setAttribute('role', 'group');
+      if (entries.length) {
+        entries.forEach(([childKey, childValue]) => children.append(renderJSONNode(childValue, childKey)));
+      } else {
+        children.append(jsonEmptyNode(Array.isArray(value) ? 'Empty array' : 'Empty object'));
+      }
+      node.append(summary, children); return node;
+    }
+
+    function renderJSONPrimitive(value, key) {
+      const node = document.createElement('div');
+      const rendered = document.createElement('span');
+      node.className = 'json-primitive'; node.setAttribute('role', 'treeitem'); rendered.className = `json-value ${jsonValueType(value)}`; rendered.textContent = jsonValue(value); node.append(jsonKey(key), rendered); return node;
+    }
+
+    function jsonKey(key) {
+      const element = document.createElement('span');
+      element.className = 'json-key'; element.textContent = `${String(key)}:`; return element;
+    }
+
+    function jsonNodeType(value, count) {
+      const element = document.createElement('span');
+      element.className = 'json-node-type'; element.textContent = Array.isArray(value) ? `[${count}]` : `{${count}}`; return element;
+    }
+
+    function jsonValueType(value) {
+      return value === null ? 'null' : typeof value;
+    }
+
+    function jsonValue(value) {
+      return typeof value === 'string' ? JSON.stringify(value) : String(value);
+    }
+
+    function jsonEmptyNode(label) {
+      const empty = document.createElement('div');
+      empty.className = 'json-empty'; empty.textContent = label; return empty;
+    }
+
+    function filterJSONViewer(tree, query, status, direction) {
+      const normalizedQuery = query.trim().toLocaleLowerCase();
+      const nodes = [...tree.querySelectorAll('.json-container, .json-primitive')];
+      nodes.forEach(node => { node.classList.remove('json-match', 'json-current-match'); node.hidden = false; });
+      if (!normalizedQuery) { status.textContent = ''; return; }
+      const matches = matchingJSONNodes(tree, normalizedQuery);
+      nodes.forEach(node => { node.hidden = !matches.some(match => match === node || node.contains(match) || match.contains(node)); });
+      matches.forEach(match => { match.classList.add('json-match'); openJSONAncestors(match); });
+      const currentIndex = nextJSONMatchIndex(tree, matches, direction);
+      if (currentIndex < 0) { status.textContent = 'No matches'; return; }
+      const current = matches[currentIndex]; current.classList.add('json-current-match'); current.scrollIntoView({block: 'nearest'});
+      tree.dataset.matchIndex = String(currentIndex); status.textContent = `${currentIndex + 1} of ${matches.length} match${matches.length === 1 ? '' : 'es'}`;
+    }
+
+    function matchingJSONNodes(tree, query) {
+      return [...tree.querySelectorAll('.json-primitive, .json-container')].filter(node => {
+        const content = node.matches('.json-primitive') ? node.textContent : node.querySelector(':scope > summary').textContent;
+        return content.toLocaleLowerCase().includes(query);
+      });
+    }
+
+    function openJSONAncestors(node) {
+      let parent = node.parentElement;
+      while (parent) { if (parent.matches('.json-container')) parent.open = true; parent = parent.parentElement; }
+    }
+
+    function nextJSONMatchIndex(tree, matches, direction) {
+      if (!matches.length) return -1;
+      const currentIndex = Number(tree.dataset.matchIndex || 0);
+      if (!direction) return 0;
+      return (currentIndex + direction + matches.length) % matches.length;
+    }
+
+    function setJSONTreeExpanded(tree, expanded) {
+      tree.querySelectorAll('.json-container').forEach(node => { node.open = expanded; });
+    }
+
+    async function copyJSON(data, button) {
+      const originalLabel = button.textContent;
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+        button.textContent = 'Copied';
+      } catch (_) {
+        button.textContent = 'Copy failed';
+      }
+      window.setTimeout(() => { button.textContent = originalLabel; }, 1600);
+    }
+
+    function toggleRawJSON(tree, data, button) {
+      const raw = tree.parentElement.querySelector('.json-raw');
+      if (raw) { raw.remove(); tree.hidden = false; button.textContent = 'Raw JSON'; return; }
+      const content = document.createElement('pre');
+      content.className = 'json-raw'; content.textContent = JSON.stringify(data, null, 2); tree.hidden = true; tree.after(content); button.textContent = 'Hide raw';
+    }
+
     function renderOperationDetail(data) {
       const detail = data.operation;
       const panel = document.querySelector('#operation-inspector');
@@ -565,6 +755,7 @@
         metadata.forEach(([key, value]) => { const item = document.createElement('div'); const name = document.createElement('strong'); const content = document.createElement('p'); item.className = 'metadata-item'; name.textContent = key; content.textContent = value; item.append(name, content); list.append(item); });
         panel.append(detailSection('Redacted context', list));
       }
+      panel.append(detailSection('Full recorded JSON', jsonDetails(data)));
     }
 
     function renderInspectorPlaceholder() {
@@ -660,6 +851,8 @@
     document.querySelector('#account-toggle').onclick = () => { const open = document.querySelector('#account-panel').classList.contains('hidden'); setAccountMenu(open); };
     document.querySelector('#change-password').onclick = openPasswordDialog;
     document.querySelector('#cancel-password').onclick = closePasswordDialog;
+    document.querySelector('#close-json-viewer').onclick = closeJSONViewer;
+    document.querySelector('#json-viewer-dialog').onclose = () => setJSONViewerScrollLock(false);
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && !document.querySelector('#password-dialog').classList.contains('hidden')) closePasswordDialog(); });
     document.querySelector('#logout').onclick = async () => { try { await handleResponse(await fetch('/operations/api/auth/logout', { method:'POST', headers:{'X-Operations-CSRF':csrfToken()} }), 'Could not sign out'); window.location.assign('/operations/login'); } catch (failure) { document.querySelector('#error').textContent = failure.message; document.querySelector('#error').classList.remove('hidden'); } };
     document.querySelector('#password-form').onsubmit = async event => { event.preventDefault(); const error = document.querySelector('#password-error'); const button = document.querySelector('#save-password'); error.classList.add('hidden'); button.disabled = true; try { await handleResponse(await fetch('/operations/api/auth/password', { method:'POST', headers:{'Content-Type':'application/json','X-Operations-CSRF':csrfToken()}, body:JSON.stringify({ current_password:document.querySelector('#current-password').value, new_password:document.querySelector('#new-password').value }) }), 'Could not change password'); closePasswordDialog(); } catch (failure) { error.textContent = failure.message; error.classList.remove('hidden'); } finally { button.disabled = false; } };

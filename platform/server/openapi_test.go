@@ -98,6 +98,11 @@ func assertOperationsDocumentation(t *testing.T, paths map[string]any) {
 		}
 	}
 	operations := documentedGetOperation(t, paths, "/operations/api/operations")
+	operationListSchema := operations["responses"].(map[string]any)["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	operationListItem := operationListSchema["properties"].(map[string]any)["operations"].(map[string]any)["items"].(map[string]any)
+	if operationListItem["properties"].(map[string]any)["details"] != nil {
+		t.Errorf("operation list schema = %#v, must omit details", operationListSchema)
+	}
 	for _, parameter := range []string{"range", "from", "to", "status", "type", "limit", "offset"} {
 		if !hasParameter(operations, parameter) {
 			t.Errorf("operations parameters = %#v, want %s", operations["parameters"], parameter)
@@ -110,6 +115,16 @@ func assertOperationsDocumentation(t *testing.T, paths map[string]any) {
 	detail := documentedGetOperation(t, paths, "/operations/api/operations/{id}")
 	if detail["responses"].(map[string]any)["404"] == nil {
 		t.Errorf("detail responses = %#v, want 404", detail["responses"])
+	}
+	if !containsAll(detail["description"].(string), "research-selection input", "selected candidate URLs", "provider prompts") {
+		t.Errorf("detail description = %q", detail["description"])
+	}
+	detailSchema := detail["responses"].(map[string]any)["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	properties := detailSchema["properties"].(map[string]any)
+	operationDetails := properties["operation"].(map[string]any)["properties"].(map[string]any)["details"].(map[string]any)
+	stepDetails := properties["steps"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["details"].(map[string]any)
+	if operationDetails["properties"].(map[string]any)["request"] == nil || stepDetails["properties"].(map[string]any)["selection_request"] == nil || stepDetails["properties"].(map[string]any)["selection_response"] == nil || stepDetails["properties"].(map[string]any)["selected_candidates"] == nil {
+		t.Errorf("detail schema = %#v, want operation and step details", detailSchema)
 	}
 	for _, path := range []string{"/operations/setup", "/operations/login"} {
 		operation := documentedGetOperation(t, paths, path)

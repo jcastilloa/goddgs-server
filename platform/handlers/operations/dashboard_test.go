@@ -144,6 +144,7 @@ func TestDashboardContainsOperationalControlsAndLiveDuration(t *testing.T) {
 		"operations-type",
 		"load-more",
 		"operation-inspector",
+		"Open JSON viewer",
 		"updated-at",
 		"proxy-health",
 		"account-username",
@@ -162,6 +163,47 @@ func TestDashboardContainsOperationalControlsAndLiveDuration(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "finally { window.location.assign('/operations/login'); }") {
 		t.Error("dashboard logout redirects even when the logout request fails")
+	}
+}
+
+func TestDashboardContainsSearchableJSONViewer(t *testing.T) {
+	engine := handlerEngine(NewDashboard())
+
+	recorder := serve(engine, "/")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if !containsAll(recorder.Body.String(),
+		"json-viewer",
+		"json-viewer-dialog",
+		"json-viewer-dialog { display: none; }",
+		"json-viewer-dialog[open] {",
+		"grid-template-rows: auto minmax(0, 1fr);",
+		"#json-viewer-content { min-height: 0; overflow: hidden; }",
+		"grid-template-rows: auto auto minmax(0, 1fr);",
+		"overscroll-behavior: contain;",
+		"html.json-viewer-open, body.json-viewer-open { overflow: hidden; }",
+		"setJSONViewerScrollLock(true)",
+		"setJSONViewerScrollLock(false)",
+		"tree.hidden = true",
+		"tree.hidden = false",
+		"Open JSON viewer",
+		"Search JSON",
+		"Previous",
+		"Next",
+		"Expand all",
+		"Collapse all",
+		"Copy JSON",
+		"Raw JSON",
+		"openJSONViewer",
+		"closeJSONViewer",
+		"renderJSONNode",
+		"filterJSONViewer",
+		"matchingJSONNodes",
+		"nextJSONMatchIndex",
+	) {
+		t.Errorf("dashboard must include the generic JSON viewer")
 	}
 }
 

@@ -2,8 +2,10 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"regexp"
@@ -20,6 +22,7 @@ import (
 const MaxTextLength = 512
 
 var sensitiveKey = regexp.MustCompile(`(?i)(authorization|api[_-]?key|token|secret|password|response|prompt|body)`)
+var sensitiveDetailKey = regexp.MustCompile(`(?i)(authorization|api[_-]?key|token|secret|password)`)
 
 type operationContext struct {
 	id        string
@@ -50,7 +53,7 @@ func (r EventRecorder) StartOperation(ctx context.Context, start operations.Oper
 	}
 	startedAt := r.now().UTC()
 	id := r.newID()
-	operation := operations.Operation{ID: id, Type: start.Type, Status: operations.StatusRunning, StartedAt: startedAt, HTTPMethod: start.Method, HTTPPath: start.Path, Metadata: SanitizeMetadata(start.Metadata)}
+	operation := operations.Operation{ID: id, Type: start.Type, Status: operations.StatusRunning, StartedAt: startedAt, HTTPMethod: start.Method, HTTPPath: start.Path, Metadata: SanitizeMetadata(start.Metadata), Details: SanitizeDetails(start.Details)}
 	if err := r.repository.CreateOperation(ctx, operation); err != nil {
 		return ctx, err
 	}
@@ -93,7 +96,7 @@ func (r EventRecorder) StartStep(ctx context.Context, start operations.StepStart
 	if !ok {
 		return operations.Step{}, nil
 	}
-	step := operations.Step{ID: r.newID(), OperationID: operation.id, Type: start.Type, Status: operations.StatusRunning, StartedAt: r.now().UTC(), Provider: SanitizeText(start.Provider), Backend: SanitizeText(start.Backend), Proxy: SanitizeText(start.Proxy), Metadata: SanitizeMetadata(start.Metadata)}
+	step := operations.Step{ID: r.newID(), OperationID: operation.id, Type: start.Type, Status: operations.StatusRunning, StartedAt: r.now().UTC(), Provider: SanitizeText(start.Provider), Backend: SanitizeText(start.Backend), Proxy: SanitizeText(start.Proxy), Metadata: SanitizeMetadata(start.Metadata), Details: SanitizeDetails(start.Details)}
 	if err := r.repository.AddStep(ctx, step); err != nil {
 		return operations.Step{}, err
 	}
@@ -105,6 +108,7 @@ func (r EventRecorder) FinishStep(ctx context.Context, step operations.Step, ste
 		return nil
 	}
 	step.Metadata = SanitizeMetadata(step.Metadata)
+	step.Details = SanitizeDetails(step.Details)
 	finishedAt := r.now().UTC()
 	result := resultFor(stepErr)
 	step.Status = statusFor(result)
@@ -230,6 +234,66 @@ func SanitizeMetadata(metadata map[string]string) map[string]string {
 		clean[key] = SanitizeText(value)
 	}
 	return clean
+}
+
+func SanitizeDetails(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil
+	}
+	clean, ok := sanitizeDetailValue(value, "")
+	if !ok {
+		return nil
+	}
+	encoded, err := json.Marshal(clean)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+func sanitizeDetailValue(value any, key string) (any, bool) {
+	switch value := value.(type) {
+	case map[string]any:
+		clean := make(map[string]any, len(value))
+		for childKey, childValue := range value {
+			if sensitiveDetailKey.MatchString(childKey) {
+				continue
+			}
+			child, ok := sanitizeDetailValue(childValue, childKey)
+			if ok {
+				clean[childKey] = child
+			}
+		}
+		return clean, true
+	case []any:
+		clean := make([]any, 0, len(value))
+		for _, item := range value {
+			item, ok := sanitizeDetailValue(item, "")
+			if ok {
+				clean = append(clean, item)
+			}
+		}
+		return clean, true
+	case string:
+		if strings.EqualFold(key, "url") {
+			return SanitizeURL(value), true
+		}
+		return scrubSecretTokens(redactURLs(value)), true
+	case nil, bool, json.Number:
+		return value, true
+	default:
+		return nil, false
+	}
 }
 
 func redactURLs(value string) string {

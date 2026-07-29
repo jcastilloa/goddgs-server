@@ -138,8 +138,8 @@ WHERE id IN (
 
 func (s *Store) CreateOperation(ctx context.Context, operation operations.Operation) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO operations (id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.ID, operation.Type, operation.Status, timestamp(operation.StartedAt), nullableTimestamp(operation.FinishedAt), nullableInt64(operation.DurationMS), nullableString(string(operation.Result)), nullableString(operation.HTTPMethod), nullableString(operation.HTTPPath), nullableInt(operation.HTTPStatus), metadata(operation.Metadata))
+INSERT INTO operations (id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata, details)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.ID, operation.Type, operation.Status, timestamp(operation.StartedAt), nullableTimestamp(operation.FinishedAt), nullableInt64(operation.DurationMS), nullableString(string(operation.Result)), nullableString(operation.HTTPMethod), nullableString(operation.HTTPPath), nullableInt(operation.HTTPStatus), metadata(operation.Metadata), details(operation.Details))
 	return wrapWriteError("create operation", err)
 }
 
@@ -153,8 +153,8 @@ WHERE id = ?`, operation.Status, nullableTimestamp(operation.FinishedAt), nullab
 
 func (s *Store) AddStep(ctx context.Context, step operations.Step) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO operation_steps (step_id, operation_id, name, type, status, started_at, finished_at, duration_ms, result, provider, backend, proxy, metadata)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.ID, step.OperationID, stepName(step), step.Type, step.Status, timestamp(step.StartedAt), nullableTimestamp(step.FinishedAt), nullableInt64(step.DurationMS), nullableString(string(step.Result)), nullableString(step.Provider), nullableString(step.Backend), nullableString(step.Proxy), metadata(step.Metadata))
+INSERT INTO operation_steps (step_id, operation_id, name, type, status, started_at, finished_at, duration_ms, result, provider, backend, proxy, metadata, details)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, step.ID, step.OperationID, stepName(step), step.Type, step.Status, timestamp(step.StartedAt), nullableTimestamp(step.FinishedAt), nullableInt64(step.DurationMS), nullableString(string(step.Result)), nullableString(step.Provider), nullableString(step.Backend), nullableString(step.Proxy), metadata(step.Metadata), details(step.Details))
 	return wrapWriteError("add operation step", err)
 }
 
@@ -166,6 +166,10 @@ SET status = ?, finished_at = ?, duration_ms = ?, result = ?`
 	if step.Metadata != nil {
 		query += `, metadata = ?`
 		arguments = append(arguments, metadata(step.Metadata))
+	}
+	if step.Details != nil {
+		query += `, details = ?`
+		arguments = append(arguments, details(step.Details))
 	}
 	query += ` WHERE step_id = ?`
 	arguments = append(arguments, step.ID)
@@ -534,7 +538,7 @@ type timeSeriesAccumulator struct {
 
 func operationListQuery(query operations.OperationQuery) (string, []any) {
 	statement, arguments := operationQuery(`
-SELECT id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata
+SELECT id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata, NULL AS details
 FROM operations`, query)
 	statement += " ORDER BY started_at DESC"
 	if query.Limit > 0 {
@@ -564,7 +568,7 @@ func operationQuery(statement string, query operations.OperationQuery) (string, 
 
 func (s *Store) findOperation(ctx context.Context, id string) (operations.Operation, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata
+SELECT id, type, status, started_at, finished_at, duration_ms, result, http_method, http_path, http_status, metadata, details
 FROM operations
 WHERE id = ?`, id)
 	operation, err := scanOperation(row)
@@ -579,7 +583,7 @@ WHERE id = ?`, id)
 
 func (s *Store) listSteps(ctx context.Context, operationID string) ([]operations.Step, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT step_id, operation_id, name, type, status, started_at, finished_at, duration_ms, result, provider, backend, proxy, metadata
+SELECT step_id, operation_id, name, type, status, started_at, finished_at, duration_ms, result, provider, backend, proxy, metadata, details
 FROM operation_steps
 WHERE operation_id = ?
 ORDER BY started_at`, operationID)
@@ -735,6 +739,13 @@ func metadata(value map[string]string) any {
 	return string(encoded)
 }
 
+func details(value json.RawMessage) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return string(value)
+}
+
 func stepName(step operations.Step) string {
 	if step.Name != "" {
 		return step.Name
@@ -749,9 +760,9 @@ func scanOperation(row scanner) (operations.Operation, error) {
 	var startedAt string
 	var finishedAt sql.NullString
 	var durationMS sql.NullInt64
-	var result, method, path, metadataValue sql.NullString
+	var result, method, path, metadataValue, detailsValue sql.NullString
 	var statusCode sql.NullInt64
-	if err := row.Scan(&operation.ID, &operation.Type, &operation.Status, &startedAt, &finishedAt, &durationMS, &result, &method, &path, &statusCode, &metadataValue); err != nil {
+	if err := row.Scan(&operation.ID, &operation.Type, &operation.Status, &startedAt, &finishedAt, &durationMS, &result, &method, &path, &statusCode, &metadataValue, &detailsValue); err != nil {
 		return operations.Operation{}, fmt.Errorf("scan operation: %w", err)
 	}
 	var err error
@@ -775,15 +786,16 @@ func scanOperation(row scanner) (operations.Operation, error) {
 		operation.HTTPStatus = int(statusCode.Int64)
 	}
 	operation.Metadata = parseMetadata(metadataValue)
+	operation.Details = parseDetails(detailsValue)
 	return operation, nil
 }
 
 func scanStep(row scanner) (operations.Step, error) {
 	var step operations.Step
 	var startedAt string
-	var finishedAt, result, provider, backend, proxy, metadataValue sql.NullString
+	var finishedAt, result, provider, backend, proxy, metadataValue, detailsValue sql.NullString
 	var duration sql.NullInt64
-	if err := row.Scan(&step.ID, &step.OperationID, &step.Name, &step.Type, &step.Status, &startedAt, &finishedAt, &duration, &result, &provider, &backend, &proxy, &metadataValue); err != nil {
+	if err := row.Scan(&step.ID, &step.OperationID, &step.Name, &step.Type, &step.Status, &startedAt, &finishedAt, &duration, &result, &provider, &backend, &proxy, &metadataValue, &detailsValue); err != nil {
 		return operations.Step{}, fmt.Errorf("scan operation step: %w", err)
 	}
 	parsedStartedAt, err := time.Parse(time.RFC3339Nano, startedAt)
@@ -803,6 +815,7 @@ func scanStep(row scanner) (operations.Step, error) {
 	step.Result = operations.Result(result.String)
 	step.Provider, step.Backend, step.Proxy = provider.String, backend.String, proxy.String
 	step.Metadata = parseMetadata(metadataValue)
+	step.Details = parseDetails(detailsValue)
 	return step, nil
 }
 
@@ -830,4 +843,11 @@ func parseMetadata(value sql.NullString) map[string]string {
 		return nil
 	}
 	return metadata
+}
+
+func parseDetails(value sql.NullString) json.RawMessage {
+	if !value.Valid || value.String == "" {
+		return nil
+	}
+	return json.RawMessage(value.String)
 }

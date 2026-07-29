@@ -214,6 +214,52 @@ func TestStoreUpdatesStepMetadataWhenSelectionFinishes(t *testing.T) {
 	}
 }
 
+func TestStorePersistsOperationAndStepDetails(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "operations.sqlite"))
+	defer store.Close()
+
+	startedAt := time.Now().UTC()
+	if err := store.CreateOperation(context.Background(), operations.Operation{
+		ID:        "research-1",
+		Type:      operations.OperationResearch,
+		Status:    operations.StatusRunning,
+		StartedAt: startedAt,
+		Details:   json.RawMessage(`{"request":{"query":"research topic"}}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddStep(context.Background(), operations.Step{
+		ID:          "selection-1",
+		OperationID: "research-1",
+		Type:        operations.StepResearchSelection,
+		Status:      operations.StatusRunning,
+		StartedAt:   startedAt,
+		Details:     json.RawMessage(`{"selection_request":{"candidates":[{"url":"https://example.com/candidate"}]}}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishStep(context.Background(), operations.Step{
+		ID:         "selection-1",
+		Status:     operations.StatusSucceeded,
+		Result:     operations.ResultSucceeded,
+		FinishedAt: startedAt.Add(time.Second),
+		Details:    json.RawMessage(`{"selection_response":{"candidate_ids":["candidate-1"]},"selected_candidates":[{"url":"https://example.com/candidate"}]}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, found, err := store.GetOperation(context.Background(), "research-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || string(detail.Operation.Details) != `{"request":{"query":"research topic"}}` || len(detail.Steps) != 1 {
+		t.Fatalf("GetOperation() = %#v, found = %t", detail, found)
+	}
+	if got := string(detail.Steps[0].Details); got != `{"selection_response":{"candidate_ids":["candidate-1"]},"selected_candidates":[{"url":"https://example.com/candidate"}]}` {
+		t.Errorf("step details = %s", got)
+	}
+}
+
 func TestStorePreservesMetadataWhenFinishingAnUnmodifiedStep(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "operations.sqlite"))
 	defer store.Close()
@@ -373,7 +419,7 @@ func TestDashboardQueriesReturnOperationsSummarySeriesDetailAndProxies(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.Total != 3 || len(page.Operations) != 2 || page.Operations[0].ID != "failed" || page.Operations[0].Metadata != nil || page.Operations[1].Metadata["query"] != "Go" {
+	if page.Total != 3 || len(page.Operations) != 2 || page.Operations[0].ID != "failed" || page.Operations[0].Metadata != nil || page.Operations[1].Metadata["query"] != "Go" || page.Operations[0].Details != nil || page.Operations[1].Details != nil {
 		t.Errorf("ListOperations() = %#v", page)
 	}
 

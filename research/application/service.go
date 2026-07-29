@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -214,17 +215,43 @@ func (s Service) recordSelection(ctx context.Context, query string, candidates [
 		}
 		return validateSelection(candidates, selection, s.maxSelectedSources)
 	}
-	step, _ := s.recorder.StartStep(ctx, operations.StepStart{Type: operations.StepResearchSelection, Metadata: selectionMetadata(candidatesFound, len(candidates), 0)})
-	selection, err := s.selector.Select(ctx, selectionRequest(query, candidates))
+	request := selectionRequest(query, candidates)
+	step, _ := s.recorder.StartStep(ctx, operations.StepStart{Type: operations.StepResearchSelection, Metadata: selectionMetadata(candidatesFound, len(candidates), 0), Details: selectionDetails(request, Selection{}, nil)})
+	selection, err := s.selector.Select(ctx, request)
 	selected := []candidateSource(nil)
 	if err == nil {
 		selected, err = validateSelection(candidates, selection, s.maxSelectedSources)
 	}
 	step.Metadata = selectionMetadata(candidatesFound, len(candidates), len(selected))
+	step.Details = selectionDetails(request, selection, selected)
 	if finishErr := s.recorder.FinishStep(ctx, step, err); finishErr != nil && err == nil {
 		return nil, finishErr
 	}
 	return selected, err
+}
+
+func selectionDetails(request SelectionRequest, selection Selection, selected []candidateSource) json.RawMessage {
+	details := struct {
+		SelectionRequest   SelectionRequest     `json:"selection_request"`
+		SelectionResponse  *Selection           `json:"selection_response,omitempty"`
+		SelectedCandidates []SelectionCandidate `json:"selected_candidates,omitempty"`
+	}{SelectionRequest: request}
+	if selection.CandidateIDs != nil {
+		details.SelectionResponse = &selection
+	}
+	if selected != nil {
+		details.SelectedCandidates = selectionCandidatesForDetail(selected)
+	}
+	encoded, _ := json.Marshal(details)
+	return encoded
+}
+
+func selectionCandidatesForDetail(candidates []candidateSource) []SelectionCandidate {
+	details := make([]SelectionCandidate, len(candidates))
+	for index, candidate := range candidates {
+		details[index] = SelectionCandidate{ID: candidate.ID, Title: candidate.Title, Description: candidate.Description, URL: candidate.URL}
+	}
+	return details
 }
 
 func selectionMetadata(candidatesFound, candidatesSubmitted, candidatesSelected int) map[string]string {

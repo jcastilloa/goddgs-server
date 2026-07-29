@@ -17,6 +17,19 @@ var migrations = []migration{
 	{version: 3, apply: applyProbeHealthSchema},
 	{version: 4, apply: applyDashboardIndexes},
 	{version: 5, apply: applyDashboardAuthSchema},
+	{version: 6, apply: applyOperationDetailsSchema},
+}
+
+func applyOperationDetailsSchema(ctx context.Context, transaction *sql.Tx) error {
+	for _, statement := range []string{
+		"ALTER TABLE operations ADD COLUMN details TEXT",
+		"ALTER TABLE operation_steps ADD COLUMN details TEXT",
+	} {
+		if _, err := transaction.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyDashboardIndexes(ctx context.Context, transaction *sql.Tx) error {

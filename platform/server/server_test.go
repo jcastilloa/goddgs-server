@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -233,6 +236,33 @@ func TestServerWithRecorderInstrumentsEverySearchRoute(t *testing.T) {
 	}
 	if got := recorderRepository.operations[1].Metadata["category"]; got != "news" {
 		t.Errorf("news category = %q, want news", got)
+	}
+}
+
+func TestOperationStartRecordsResearchRequestWithoutConsumingIt(t *testing.T) {
+	body := []byte(`{"query":"why are URLs strange?","query_count":3,"query_languages":["en","es"]}`)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/research", bytes.NewReader(body))
+
+	start, recorded := operationStart(context)
+
+	if !recorded || start.Type != operations.OperationResearch {
+		t.Fatalf("operationStart() = %#v, %t", start, recorded)
+	}
+	var details map[string]any
+	if err := json.Unmarshal(start.Details, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	request, ok := details["request"].(map[string]any)
+	if !ok || request["query"] != "why are URLs strange?" || request["query_count"] != float64(3) {
+		t.Errorf("recorded request = %#v", details)
+	}
+	restored, err := io.ReadAll(context.Request.Body)
+	if err != nil {
+		t.Fatalf("read restored request body: %v", err)
+	}
+	if !bytes.Equal(restored, body) {
+		t.Errorf("restored body = %q, want %q", restored, body)
 	}
 }
 

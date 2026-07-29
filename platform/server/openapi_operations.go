@@ -133,13 +133,13 @@ func operationsListPath() gin.H {
 		queryParameter("limit", false, "Page size; defaults to 50 and must be between 1 and 100.", gin.H{"type": "integer", "minimum": 1, "maximum": 100, "default": 50}, 50),
 		queryParameter("offset", false, "Zero-based page offset; defaults to 0 and must be between 0 and 10000.", gin.H{"type": "integer", "minimum": 0, "maximum": 10000, "default": 0}, 0),
 	)
-	return operationsJSONPath("List recent operations.", "Returns a sanitized, paginated list of operations. The selected range defaults to 24 hours.", parameters, gin.H{"type": "object", "required": []string{"operations", "total"}, "properties": gin.H{"operations": gin.H{"type": "array", "items": operationSchema()}, "total": gin.H{"type": "integer", "minimum": 0}}}, gin.H{"operations": []gin.H{{"id": "operation-123", "type": "search", "status": "succeeded", "started_at": "2026-07-28T10:00:00Z", "duration_ms": 120, "result": "succeeded"}}, "total": 1})
+	return operationsJSONPath("List recent operations.", "Returns a sanitized, paginated list of operations without expandable artifacts. The selected range defaults to 24 hours; request and step artifacts are returned only by the operation-detail endpoint.", parameters, gin.H{"type": "object", "required": []string{"operations", "total"}, "properties": gin.H{"operations": gin.H{"type": "array", "items": operationListSchema()}, "total": gin.H{"type": "integer", "minimum": 0}}}, gin.H{"operations": []gin.H{{"id": "operation-123", "type": "search", "status": "succeeded", "started_at": "2026-07-28T10:00:00Z", "duration_ms": 120, "result": "succeeded"}}, "total": 1})
 }
 
 func operationsDetailPath() gin.H {
 	return gin.H{"get": gin.H{
 		"summary":     "Get one operation.",
-		"description": "Returns the sanitized operation, its recorded steps, and categorized errors. It never exposes credentials, request bodies, prompts, or provider responses.",
+		"description": "Returns the sanitized operation, its recorded steps, and categorized errors. The dashboard's optional JSON disclosure includes the sanitized research request plus recorded research-selection input, selector candidate IDs, and selected candidate URLs for operations created after this feature is deployed. It never exposes credentials, provider prompts, or raw provider responses.",
 		"tags":        []string{"Operations"},
 		"security":    operationsSecurity(),
 		"parameters":  []gin.H{{"name": "id", "in": "path", "required": true, "description": "Opaque operation identifier.", "schema": gin.H{"type": "string"}, "example": "operation-123"}},
@@ -186,11 +186,30 @@ func operationsBucketSchema() gin.H {
 }
 
 func operationSchema() gin.H {
-	return gin.H{"type": "object", "required": []string{"id", "type", "status", "started_at", "duration_ms"}, "properties": gin.H{"id": gin.H{"type": "string"}, "type": gin.H{"type": "string", "enum": []string{"search", "extract", "research"}}, "status": gin.H{"type": "string", "enum": []string{"running", "succeeded", "failed"}}, "started_at": gin.H{"type": "string", "format": "date-time"}, "finished_at": gin.H{"type": "string", "format": "date-time"}, "duration_ms": gin.H{"type": "integer", "minimum": 0}, "result": gin.H{"type": "string"}, "http_method": gin.H{"type": "string"}, "http_path": gin.H{"type": "string"}, "http_status": gin.H{"type": "integer"}, "metadata": gin.H{"type": "object", "additionalProperties": gin.H{"type": "string"}}}}
+	return gin.H{"type": "object", "required": []string{"id", "type", "status", "started_at", "duration_ms"}, "properties": gin.H{"id": gin.H{"type": "string"}, "type": gin.H{"type": "string", "enum": []string{"search", "extract", "research"}}, "status": gin.H{"type": "string", "enum": []string{"running", "succeeded", "failed"}}, "started_at": gin.H{"type": "string", "format": "date-time"}, "finished_at": gin.H{"type": "string", "format": "date-time"}, "duration_ms": gin.H{"type": "integer", "minimum": 0}, "result": gin.H{"type": "string"}, "http_method": gin.H{"type": "string"}, "http_path": gin.H{"type": "string"}, "http_status": gin.H{"type": "integer"}, "metadata": gin.H{"type": "object", "additionalProperties": gin.H{"type": "string"}}, "details": operationDetailsSchema()}}
+}
+
+func operationListSchema() gin.H {
+	schema := operationSchema()
+	delete(schema["properties"].(gin.H), "details")
+	return schema
 }
 
 func stepSchema() gin.H {
-	return gin.H{"type": "object", "properties": gin.H{"id": gin.H{"type": "string"}, "type": gin.H{"type": "string"}, "status": gin.H{"type": "string"}, "duration_ms": gin.H{"type": "integer", "minimum": 0}, "provider": gin.H{"type": "string"}, "backend": gin.H{"type": "string"}, "proxy": gin.H{"type": "string"}}}
+	return gin.H{"type": "object", "properties": gin.H{"id": gin.H{"type": "string"}, "type": gin.H{"type": "string"}, "status": gin.H{"type": "string"}, "duration_ms": gin.H{"type": "integer", "minimum": 0}, "provider": gin.H{"type": "string"}, "backend": gin.H{"type": "string"}, "proxy": gin.H{"type": "string"}, "details": selectionDetailsSchema()}}
+}
+
+func operationDetailsSchema() gin.H {
+	return gin.H{"type": "object", "description": "Sanitized recorded artifact, including the request for a research operation when available.", "properties": gin.H{"request": gin.H{"type": "object", "description": "Sanitized JSON body supplied to POST /research.", "additionalProperties": true}}}
+}
+
+func selectionDetailsSchema() gin.H {
+	candidate := gin.H{"type": "object", "required": []string{"id", "title", "description", "url"}, "properties": gin.H{"id": gin.H{"type": "string"}, "title": gin.H{"type": "string"}, "description": gin.H{"type": "string"}, "url": gin.H{"type": "string", "format": "uri", "description": "Sanitized candidate URL."}}}
+	return gin.H{"type": "object", "description": "Sanitized recorded artifact. For research_selection it can contain selector input and output.", "properties": gin.H{
+		"selection_request":   gin.H{"type": "object", "properties": gin.H{"query": gin.H{"type": "string"}, "candidates": gin.H{"type": "array", "items": candidate}}},
+		"selection_response":  gin.H{"type": "object", "properties": gin.H{"candidate_ids": gin.H{"type": "array", "items": gin.H{"type": "string"}}}},
+		"selected_candidates": gin.H{"type": "array", "items": candidate},
+	}}
 }
 
 func operationErrorSchema() gin.H {

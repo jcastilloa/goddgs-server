@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -51,6 +52,36 @@ func TestSanitizeMetadataDoesNotPersistSensitiveOrOversizedValues(t *testing.T) 
 	}
 	if len(got["long"]) > MaxTextLength {
 		t.Errorf("SanitizeMetadata() long value length = %d", len(got["long"]))
+	}
+}
+
+func TestSanitizeDetailsRedactsNestedSecretsAndURLs(t *testing.T) {
+	raw := json.RawMessage(`{
+  "request": {
+    "query": "topic",
+    "api_key": "secret",
+    "url": "https://user:password@example.com/path?token=secret&query=topic"
+  },
+  "candidates": [
+    {"url": "https://example.com/article?api_key=secret&lang=en"}
+  ]
+}`)
+
+	got := SanitizeDetails(raw)
+	if strings.Contains(string(got), "secret") || strings.Contains(string(got), "password") || strings.Contains(string(got), "api_key") {
+		t.Errorf("SanitizeDetails() = %s", got)
+	}
+	var details map[string]any
+	if err := json.Unmarshal(got, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	request := details["request"].(map[string]any)
+	if request["url"] != "https://example.com/path?query=topic" {
+		t.Errorf("request URL = %#v", request["url"])
+	}
+	candidate := details["candidates"].([]any)[0].(map[string]any)
+	if candidate["url"] != "https://example.com/article?lang=en" {
+		t.Errorf("candidate URL = %#v", candidate["url"])
 	}
 }
 

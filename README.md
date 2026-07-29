@@ -136,7 +136,7 @@ Every round records timestamp, latency, HTTP status when available, outcome, and
 
 ![Operations dashboard](assets/operations-dashboard.png)
 
-It displays active, successful, and failed operations; p50/p95 latency; volume and latency charts; recent operations with expandable sanitized detail; and proxy health, availability history, and latency when probe records exist. Use the 24-hour, 7-day, or 30-day selector. Empty operation data produces empty states; the proxy section is hidden when no proxy probe results are available.
+It displays active, successful, and failed operations; p50/p95 latency; volume and latency charts; recent operations with expandable sanitized detail; and proxy health, availability history, and latency when probe records exist. The inspector stays compact until `Open JSON viewer` is selected. The viewer preserves every field in a searchable, collapsible tree and can copy or show the raw JSON; for new research operations it includes the submitted request and, under `research_selection`, the candidates sent to the selector, its selected candidate IDs, and the corresponding approved URLs. Use the 24-hour, 7-day, or 30-day selector. Empty operation data produces empty states; the proxy section is hidden when no proxy probe results are available.
 
 ### Local dashboard access
 
@@ -170,7 +170,7 @@ All dashboard JSON endpoints require the `operations_session` cookie; unauthenti
 
 The summary, series, list, and proxy endpoints accept `range=24h`, `range=7d`, or `range=30d` (default `24h`), or an explicit `from` and `to` RFC3339 pair no wider than 30 days. The operation-detail endpoint accepts only its path `id`. The list accepts `status`, `type`, `limit` (1–100, default 50), and `offset` (0–10000). The series accepts `interval=1h`, `6h`, or `24h`, with a safe default selected from the range. Invalid dates, ranges, filters, intervals, limits, or IDs return `400`; a missing operation returns `404`; storage failures return `500`.
 
-`auth.token` continues to protect the versioned API, `/openapi.json`, and `/docs/`. It intentionally does **not** substitute for the separate dashboard session. The dashboard only exposes the already-sanitized operational data, never request bodies, provider responses, prompts, credentials, or unredacted URLs.
+`auth.token` continues to protect the versioned API, `/openapi.json`, and `/docs/`. It intentionally does **not** substitute for the separate dashboard session. The optional JSON disclosure exposes sanitized research requests and source-selection artifacts to the authenticated dashboard account, but never credentials, provider prompts, raw provider responses, or unredacted URLs. Records created before this capability have no such artifacts.
 
 ## API
 

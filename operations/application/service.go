@@ -67,6 +67,9 @@ func (s *DashboardService) ListOperations(ctx context.Context, query operations.
 	if err != nil {
 		return operations.OperationsPage{}, err
 	}
+	for index := range operationsList {
+		operationsList[index].Details = nil
+	}
 	total, err := s.repository.CountOperations(ctx, query)
 	if err != nil {
 		return operations.OperationsPage{}, err

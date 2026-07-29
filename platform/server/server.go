@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -198,13 +201,31 @@ func operationStart(ginContext *gin.Context) (operations.OperationStart, bool) {
 		}, true
 	case ginContext.Request.Method == http.MethodPost && strings.HasSuffix(path, "/research"):
 		return operations.OperationStart{
-			Type:   operations.OperationResearch,
-			Method: ginContext.Request.Method,
-			Path:   path,
+			Type:    operations.OperationResearch,
+			Method:  ginContext.Request.Method,
+			Path:    path,
+			Details: researchRequestDetails(ginContext),
 		}, true
 	default:
 		return operations.OperationStart{}, false
 	}
+}
+
+func researchRequestDetails(ginContext *gin.Context) json.RawMessage {
+	body, err := io.ReadAll(ginContext.Request.Body)
+	if err != nil {
+		return nil
+	}
+	ginContext.Request.Body = io.NopCloser(bytes.NewReader(body))
+	var request map[string]any
+	if json.Unmarshal(body, &request) != nil {
+		return nil
+	}
+	details, err := json.Marshal(map[string]any{"request": request})
+	if err != nil {
+		return nil
+	}
+	return details
 }
 
 func isSearchPath(path string) bool {
