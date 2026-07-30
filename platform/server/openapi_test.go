@@ -37,7 +37,7 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	}
 	extractPath := paths["/v1/extract"].(map[string]any)
 	extractGet := extractPath["get"].(map[string]any)
-	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format=html", "service.request_timeout", "extract_ai.timeout", "additional attempts", "attempt timeouts") {
+	if description := extractGet["description"].(string); description == "" || !containsAll(description, "mode=heuristic", "mode=ai", "llm.base_url", "format=html", "service.request_timeout", "extract_ai.timeout", "additional attempts", "attempt timeouts", "chrome.enabled", "chrome.timeout", "chrome.max_browsers", "chrome.max_pages_per_browser", "chrome.idle_timeout", "same health-aware direct and SSH proxy rotation", "There is no public browser mode parameter", "503", "504", "502") {
 		t.Errorf("extract description = %q", description)
 	}
 	parameters := extractGet["parameters"].([]any)
@@ -47,14 +47,21 @@ func TestServerServesDynamicOpenAPISpecificationAndSwaggerUI(t *testing.T) {
 	if parameters[0].(map[string]any)["description"] == "" || parameters[1].(map[string]any)["description"] == "" || parameters[2].(map[string]any)["description"] == "" {
 		t.Errorf("extract parameters need descriptions = %#v", parameters)
 	}
+	if !containsAll(parameters[1].(map[string]any)["description"].(string), "chrome.enabled=false", "rendered DOM") || !containsAll(parameters[2].(map[string]any)["description"].(string), "configured Chrome", "sanitized HTML") {
+		t.Errorf("extract parameter descriptions = %#v", parameters)
+	}
 	format := parameters[1].(map[string]any)
 	formats := format["schema"].(map[string]any)["enum"].([]any)
 	if !containsString(formats, "html") {
 		t.Errorf("extract formats = %#v, want html", formats)
 	}
 	responses := extractGet["responses"].(map[string]any)
-	if responses["503"].(map[string]any)["description"] != "AI extraction is not configured or unavailable. Heuristic extraction remains available." {
+	if responses["503"].(map[string]any)["description"] != "AI extraction is not configured, or optional Chrome HTML loading cannot start. Chrome failures never change non-HTML extraction." {
 		t.Errorf("extract responses = %#v", responses)
+	}
+	examples := responses["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["examples"].(map[string]any)
+	if examples["html"].(map[string]any)["summary"] != "Sanitized HTML extraction" {
+		t.Errorf("HTML extraction example = %#v", examples["html"])
 	}
 	if responses["200"].(map[string]any)["content"] == nil || responses["400"].(map[string]any)["content"] == nil || responses["503"].(map[string]any)["content"] == nil {
 		t.Errorf("extract responses need documented payloads = %#v", responses)

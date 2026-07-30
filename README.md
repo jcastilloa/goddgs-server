@@ -22,6 +22,7 @@ HTTP REST server for [goddgs](https://github.com/jcastilloa/goddgs). It keeps on
   - [Existing direct proxy](#existing-direct-proxy)
   - [SSH tunnel](#ssh-tunnel)
   - [Mixed rotating pool](#mixed-rotating-pool)
+- [Chrome rendered HTML](#chrome-rendered-html)
 - [Operational storage](#operational-storage)
 - [Operations dashboard](#operations-dashboard)
 - [Verification](#verification)
@@ -39,6 +40,7 @@ Configuration is loaded from `./config.yaml` or `~/.config/goddgs-server/config.
 
 - Go **1.26.1+** to build from source.
 - A `config.yaml` with at least one proxy entry to run the server.
+- Chrome or Chromium only when `chrome.enabled: true`. A compatible executable is discovered from `PATH`; set `chrome.executable_path` when discovery is insufficient.
 
 ### Installation
 
@@ -254,9 +256,35 @@ Use `text_plain` for clean, readable text. `text_markdown` is the default, `text
 
 ### AI extraction mode
 
-`/v1/extract` defaults to `mode=heuristic`, which preserves the existing `goddgs` extraction behavior. Use `format=html` to render its extracted Markdown as a sanitized HTML fragment; it is the convenient HTML response for clients. `format=content` instead returns the unprocessed source document and appears Base64-encoded in JSON because it is binary content.
+`/v1/extract` defaults to `mode=heuristic`, which preserves the existing `goddgs` extraction behavior. With Chrome disabled, `format=html` renders extracted Markdown as a sanitized HTML fragment; with Chrome enabled, it returns sanitized rendered page DOM. `format=content` instead returns the unprocessed source document and appears Base64-encoded in JSON because it is binary content.
 
 Set `mode=ai` to send the same sanitized HTML produced by heuristic `format=html` to a configured OpenAI-compatible LLM for primary-content selection. The model never receives the full source document, including scripts and page chrome. In AI mode, `format` is ignored because the response is always clean HTML. The server removes scripts, event handlers, embedded content, forms, presentation attributes, and unsafe URLs from the model output. It retains only `href` on links and `src`/`alt` on images, without resolving or rewriting URLs. If no editorial content is found, `Content` is an empty string.
+
+## Chrome rendered HTML
+
+Chrome loading is opt-in. With `chrome.enabled: false` (the default), every extraction uses the existing HTTP `goddgs` behavior and no browser process starts. With it enabled, only source loads that require `format=html` use Chrome: public HTML extraction, AI extraction source loading, and selected research sources. All other formats and searches keep the `goddgs` client path. There is no public `mode=chrome` parameter.
+
+```yaml
+chrome:
+  enabled: true
+  # Empty discovers Chrome/Chromium at startup and persists it in the active config.yaml.
+  executable_path: ""
+  # Per page navigation and DOM-capture budget.
+  timeout: 45s
+  # Global Chrome processes and isolated page contexts per process.
+  max_browsers: 2
+  max_pages_per_browser: 3
+  # An unused Chrome process is terminated after this duration.
+  idle_timeout: 1m
+```
+
+The equivalent environment variables are `CHROME_ENABLED`, `CHROME_EXECUTABLE_PATH`, `CHROME_TIMEOUT`, `CHROME_MAX_BROWSERS`, `CHROME_MAX_PAGES_PER_BROWSER`, and `CHROME_IDLE_TIMEOUT`.
+
+Chrome processes start lazily per selected proxy, may serve concurrent isolated page contexts, and close after `idle_timeout`; they are also closed before SSH proxy tunnels during shutdown. It uses the same health-aware rotating pool as `goddgs`, including direct connections, `tb` (its effective Tor SOCKS endpoint), and existing SSH tunnel endpoints. Size `max_browsers × max_pages_per_browser` below the memory and CPU capacity of the host and below the desired research extraction concurrency.
+
+If `chrome.executable_path` is empty, startup looks for `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `chrome`, and their `.exe` equivalents on `PATH`, without enabling Chrome or launching a browser. On success it atomically writes the resolved path to the active `config.yaml`; an explicit path is never replaced. If no executable is found, the setting remains empty and the next restart tries again.
+
+The effective page deadline is the earlier of the caller deadline and `chrome.timeout`. Browser/proxy unavailability returns `503`, page deadline expiration returns `504`, and navigation or CDP errors return `502`. Browser paths, proxy URLs or credentials, CDP endpoints, process output, and rendered DOM are not exposed in error or operation details. Disabling `chrome.enabled` is the immediate rollback. Headless Chrome improves compatibility with JavaScript-rendered pages but does not guarantee access through Cloudflare, CAPTCHAs, paywalls, or IP-reputation controls. Authenticated proxy endpoints, including HTTP proxy challenges, are not supported by this initial adapter; use unauthenticated direct, SOCKS, Tor, or SSH tunnel endpoints.
 
 ```sh
 curl -sG 'http://localhost:8080/v1/extract' \

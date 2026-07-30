@@ -1,9 +1,11 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +37,14 @@ extract_ai:
   timeout: 45s
   temperature: 0.15
   retries: 2
+
+chrome:
+  enabled: true
+  executable_path: /usr/bin/chromium
+  timeout: 40s
+  max_browsers: 4
+  max_pages_per_browser: 5
+  idle_timeout: 2m
 
 research:
   timeout: 8m
@@ -114,6 +124,9 @@ proxies:
 	if got.ExtractAI.Model != "gpt-4.1-mini" || got.ExtractAI.Timeout.String() != "45s" || got.ExtractAI.Temperature != 0.15 || got.ExtractAI.Retries != 2 {
 		t.Errorf("ExtractAI = %#v", got.ExtractAI)
 	}
+	if chrome := got.Chrome; !chrome.Enabled || chrome.ExecutablePath != "/usr/bin/chromium" || chrome.Timeout != 40*time.Second || chrome.MaxBrowsers != 4 || chrome.MaxPagesPerBrowser != 5 || chrome.IdleTimeout != 2*time.Minute {
+		t.Errorf("Chrome = %#v", chrome)
+	}
 	if got.Research.Timeout.String() != "8m0s" || got.Research.MaxConcurrentExtractions != 20 || got.Research.MaxSelectionCandidates != 75 || got.Research.MaxSelectedSources != 15 || got.Research.QueryAI.Model != "gpt-4.1-mini" || got.Research.QueryAI.Timeout.String() != "25s" || got.Research.QueryAI.Temperature != 0.2 || got.Research.QueryAI.Retries != 1 || got.Research.SelectionAI.Model != "gpt-4.1-nano" || got.Research.SelectionAI.Timeout.String() != "35s" || got.Research.SelectionAI.Temperature != 0.4 || got.Research.SelectionAI.Retries != 2 || got.Research.ReportAI.Model != "gpt-4.1" || got.Research.ReportAI.Timeout.String() != "55s" || got.Research.ReportAI.Temperature != 0.3 || got.Research.ReportAI.Retries != 3 {
 		t.Errorf("Research = %#v", got.Research)
 	}
@@ -134,6 +147,150 @@ proxies:
 	}
 	if got.Proxies[1].Host != "proxy.example.com" || got.Proxies[1].Port != 2222 {
 		t.Errorf("ssh proxy = %#v", got.Proxies[1])
+	}
+}
+
+func TestNewFromFileDefaultsAndOverridesChromeConfiguration(t *testing.T) {
+	repository, err := NewFromFile(writeConfig(t, `
+proxies:
+  - name: local
+    type: direct
+`))
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+	if chrome := repository.ServerConfig().Chrome; chrome.Enabled || chrome.Timeout != configDomain.DefaultChromeTimeout || chrome.MaxBrowsers != configDomain.DefaultChromeMaxBrowsers || chrome.MaxPagesPerBrowser != configDomain.DefaultChromeMaxPagesPerBrowser || chrome.IdleTimeout != configDomain.DefaultChromeIdleTimeout {
+		t.Errorf("default Chrome = %#v", chrome)
+	}
+
+	t.Setenv("CHROME_ENABLED", "true")
+	t.Setenv("CHROME_TIMEOUT", "17s")
+	t.Setenv("CHROME_MAX_BROWSERS", "3")
+	t.Setenv("CHROME_MAX_PAGES_PER_BROWSER", "4")
+	t.Setenv("CHROME_IDLE_TIMEOUT", "3m")
+	repository, err = NewFromFile(writeConfig(t, `
+proxies:
+  - name: local
+    type: direct
+`))
+	if err != nil {
+		t.Fatalf("NewFromFile() with environment overrides error = %v", err)
+	}
+	if chrome := repository.ServerConfig().Chrome; !chrome.Enabled || chrome.Timeout != 17*time.Second || chrome.MaxBrowsers != 3 || chrome.MaxPagesPerBrowser != 4 || chrome.IdleTimeout != 3*time.Minute {
+		t.Errorf("environment Chrome = %#v", chrome)
+	}
+}
+
+func TestViperRepositoryPersistsDiscoveredChromeExecutablePath(t *testing.T) {
+	t.Setenv("CHROME_EXECUTABLE_PATH", "")
+	path := writeConfig(t, `# Keep this comment and every unrelated setting.
+chrome:
+  enabled: false
+  executable_path: "" # resolved on startup
+  timeout: 45s
+proxies:
+  - name: local
+    type: direct
+`)
+	repository, err := NewFromFile(path)
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+
+	if err := repository.PersistChromeExecutablePath(context.Background(), "/usr/bin/chromium"); err != nil {
+		t.Fatalf("PersistChromeExecutablePath() error = %v", err)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if got := string(contents); !strings.Contains(got, "# Keep this comment and every unrelated setting.\nchrome:\n  enabled: false\n  executable_path: \"/usr/bin/chromium\" # resolved on startup\n  timeout: 45s") {
+		t.Errorf("persisted configuration = %q", got)
+	}
+	reloaded, err := NewFromFile(path)
+	if err != nil {
+		t.Fatalf("NewFromFile() after persistence error = %v", err)
+	}
+	if got := reloaded.ServerConfig().Chrome.ExecutablePath; got != "/usr/bin/chromium" {
+		t.Errorf("persisted executable path = %q, want /usr/bin/chromium", got)
+	}
+}
+
+func TestViperRepositoryDoesNotReplaceConfiguredChromeExecutablePath(t *testing.T) {
+	t.Setenv("CHROME_EXECUTABLE_PATH", "")
+	path := writeConfig(t, `chrome:
+  executable_path: /operator/chrome
+proxies:
+  - name: local
+    type: direct
+`)
+	repository, err := NewFromFile(path)
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+
+	if err := repository.PersistChromeExecutablePath(context.Background(), "/usr/bin/chromium"); err != nil {
+		t.Fatalf("PersistChromeExecutablePath() error = %v", err)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(contents), "/usr/bin/chromium") {
+		t.Errorf("persisted configuration replaced configured path: %q", contents)
+	}
+}
+
+func TestViperRepositoryAddsMissingChromeSectionWhenPersistingExecutablePath(t *testing.T) {
+	t.Setenv("CHROME_EXECUTABLE_PATH", "")
+	path := writeConfig(t, `service:
+  port: 8080
+proxies:
+  - name: local
+    type: direct
+`)
+	repository, err := NewFromFile(path)
+	if err != nil {
+		t.Fatalf("NewFromFile() error = %v", err)
+	}
+
+	if err := repository.PersistChromeExecutablePath(context.Background(), "/usr/bin/google-chrome"); err != nil {
+		t.Fatalf("PersistChromeExecutablePath() error = %v", err)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if got := string(contents); !strings.HasSuffix(got, "\nchrome:\n  executable_path: \"/usr/bin/google-chrome\"\n") {
+		t.Errorf("persisted configuration = %q", got)
+	}
+}
+
+func TestNewFromFileRejectsInvalidEnabledChromeConfiguration(t *testing.T) {
+	tests := []struct {
+		name   string
+		chrome string
+	}{
+		{name: "zero timeout", chrome: "timeout: 0s\n  max_browsers: 1\n  max_pages_per_browser: 1\n  idle_timeout: 1m"},
+		{name: "negative timeout", chrome: "timeout: -1s\n  max_browsers: 1\n  max_pages_per_browser: 1\n  idle_timeout: 1m"},
+		{name: "zero browser limit", chrome: "timeout: 1s\n  max_browsers: 0\n  max_pages_per_browser: 1\n  idle_timeout: 1m"},
+		{name: "negative browser limit", chrome: "timeout: 1s\n  max_browsers: -1\n  max_pages_per_browser: 1\n  idle_timeout: 1m"},
+		{name: "zero page limit", chrome: "timeout: 1s\n  max_browsers: 1\n  max_pages_per_browser: 0\n  idle_timeout: 1m"},
+		{name: "negative page limit", chrome: "timeout: 1s\n  max_browsers: 1\n  max_pages_per_browser: -1\n  idle_timeout: 1m"},
+		{name: "zero idle timeout", chrome: "timeout: 1s\n  max_browsers: 1\n  max_pages_per_browser: 1\n  idle_timeout: 0s"},
+		{name: "negative idle timeout", chrome: "timeout: 1s\n  max_browsers: 1\n  max_pages_per_browser: 1\n  idle_timeout: -1s"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := NewFromFile(writeConfig(t, "chrome:\n  enabled: true\n  "+testCase.chrome+"\nproxies:\n  - name: local\n    type: direct\n"))
+			if !errors.Is(err, configDomain.ErrInvalidConfiguration) {
+				t.Errorf("NewFromFile() error = %v, want ErrInvalidConfiguration", err)
+			}
+		})
 	}
 }
 

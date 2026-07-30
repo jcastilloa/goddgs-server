@@ -19,6 +19,21 @@ extract_ai:
   temperature: 0.1
   retries: 2
 
+# Optional rendered-HTML extraction through Chrome/Chromium. Disabled preserves
+# the existing HTTP extraction path and launches no browser process.
+chrome:
+  enabled: false
+  # Empty discovers Chrome/Chromium at startup and persists it in the active config.yaml.
+  executable_path: ""
+  # Per-page navigation and rendered-DOM capture budget.
+  timeout: 45s
+  # Global Chrome process limit across all proxies.
+  max_browsers: 2
+  # Concurrent isolated browser contexts allowed in one process.
+  max_pages_per_browser: 3
+  # Close a process after it has been unused for this duration.
+  idle_timeout: 1m
+
 research:
   timeout: 10m
   # Maximum normalized search-result metadata candidates sent to selection_ai.

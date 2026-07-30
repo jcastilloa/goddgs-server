@@ -116,6 +116,10 @@ func writeSearchError(ginContext *gin.Context, err error) {
 		ginContext.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, extractAIDomain.ErrUnavailable):
 		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+	case errors.Is(err, domain.ErrHTMLLoaderUnavailable):
+		ginContext.JSON(http.StatusServiceUnavailable, gin.H{"error": "HTML browser extraction is unavailable"})
+	case errors.Is(err, domain.ErrHTMLLoaderNavigation):
+		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "HTML browser navigation failed"})
 	case errors.Is(err, syscall.ECONNREFUSED):
 		ginContext.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection refused"})
 	case errors.Is(err, syscall.ECONNRESET):

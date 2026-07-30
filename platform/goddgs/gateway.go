@@ -21,16 +21,34 @@ type Client interface {
 type client = Client
 
 type Gateway struct {
-	clients    *proxyApplication.Pool[Client]
+	clients    map[string]Client
+	proxies    *proxyApplication.Pool[proxyApplication.Endpoint]
 	maxRetries int
 	recorder   *operationsApplication.EventRecorder
 }
 
 func NewGateway(entries []proxyApplication.Entry[Client], maxRetries int, recorders ...operationsApplication.EventRecorder) (*Gateway, error) {
-	clients, err := proxyApplication.NewPool(entries)
+	proxies := make([]proxyApplication.Entry[proxyApplication.Endpoint], 0, len(entries))
+	clients := make(map[string]Client, len(entries))
+	for _, entry := range entries {
+		proxies = append(proxies, proxyApplication.Entry[proxyApplication.Endpoint]{Key: entry.Key})
+		clients[entry.Key] = entry.Value
+	}
+	selector, err := proxyApplication.NewPool(proxies)
 	if err != nil {
 		return nil, err
 	}
+	return buildGateway(selector, clients, maxRetries, recorders...)
+}
+
+func NewGatewayWithProxySelector(selector *proxyApplication.Pool[proxyApplication.Endpoint], clients map[string]Client, maxRetries int, recorders ...operationsApplication.EventRecorder) (*Gateway, error) {
+	if selector == nil || len(clients) == 0 {
+		return nil, proxyApplication.ErrInvalidPool
+	}
+	return buildGateway(selector, clients, maxRetries, recorders...)
+}
+
+func buildGateway(selector *proxyApplication.Pool[proxyApplication.Endpoint], clients map[string]Client, maxRetries int, recorders ...operationsApplication.EventRecorder) (*Gateway, error) {
 	if maxRetries < 0 {
 		maxRetries = 0
 	}
@@ -38,21 +56,25 @@ func NewGateway(entries []proxyApplication.Entry[Client], maxRetries int, record
 	if len(recorders) > 0 {
 		recorder = &recorders[0]
 	}
-	return &Gateway{clients: clients, maxRetries: maxRetries, recorder: recorder}, nil
+	return &Gateway{clients: clients, proxies: selector, maxRetries: maxRetries, recorder: recorder}, nil
 }
 
 func (g *Gateway) MarkHealthy(key string) {
-	g.clients.MarkHealthy(key)
+	g.proxies.MarkHealthy(key)
 }
 
 func (g *Gateway) MarkUnhealthy(key string) {
-	g.clients.MarkUnhealthy(key)
+	g.proxies.MarkUnhealthy(key)
+}
+
+func (g *Gateway) ProxySelector() *proxyApplication.Pool[proxyApplication.Endpoint] {
+	return g.proxies
 }
 
 func (g *Gateway) Search(ctx context.Context, request domain.SearchRequest) ([]domain.RawResult, error) {
 	var lastErr error
 	for attempts := 0; attempts <= g.maxRetries; attempts++ {
-		lease, err := g.clients.Select(ctx)
+		lease, client, err := g.selectClient(ctx)
 		if err != nil {
 			if lastErr != nil {
 				return nil, lastErr
@@ -61,7 +83,7 @@ func (g *Gateway) Search(ctx context.Context, request domain.SearchRequest) ([]d
 		}
 
 		step := g.startSearchStep(ctx, request, lease.Key)
-		results, err := lease.Value.Search(ctx, request)
+		results, err := client.Search(ctx, request)
 		if step.ID != "" {
 			step.Metadata = operationsApplication.SanitizeMetadata(map[string]string{
 				"query":        request.Query,
@@ -81,7 +103,7 @@ func (g *Gateway) Search(ctx context.Context, request domain.SearchRequest) ([]d
 func (g *Gateway) Extract(ctx context.Context, request domain.ExtractRequest) (domain.ExtractResult, error) {
 	var lastErr error
 	for attempts := 0; attempts <= g.maxRetries; attempts++ {
-		lease, err := g.clients.Select(ctx)
+		lease, client, err := g.selectClient(ctx)
 		if err != nil {
 			if lastErr != nil {
 				return domain.ExtractResult{}, lastErr
@@ -90,7 +112,7 @@ func (g *Gateway) Extract(ctx context.Context, request domain.ExtractRequest) (d
 		}
 
 		step := g.startExtractStep(ctx, request, lease.Key)
-		result, err := lease.Value.Extract(ctx, request)
+		result, err := client.Extract(ctx, request)
 		if step.ID != "" {
 			step.Metadata = operationsApplication.SanitizeMetadata(map[string]string{
 				"url":    request.URL,
@@ -105,6 +127,18 @@ func (g *Gateway) Extract(ctx context.Context, request domain.ExtractRequest) (d
 		lastErr = err
 	}
 	return domain.ExtractResult{}, lastErr
+}
+
+func (g *Gateway) selectClient(ctx context.Context) (proxyApplication.Lease[proxyApplication.Endpoint], Client, error) {
+	lease, err := g.proxies.Select(ctx)
+	if err != nil {
+		return proxyApplication.Lease[proxyApplication.Endpoint]{}, nil, err
+	}
+	client, ok := g.clients[lease.Key]
+	if !ok || client == nil {
+		return proxyApplication.Lease[proxyApplication.Endpoint]{}, nil, ErrTransport
+	}
+	return lease, client, nil
 }
 
 func (g *Gateway) startSearchStep(ctx context.Context, request domain.SearchRequest, proxy string) operations.Step {

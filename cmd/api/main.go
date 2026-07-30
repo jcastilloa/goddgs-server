@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 
 	operationsApplication "github.com/jcastilloa/goddgs-server/operations/application"
 	operationsDomain "github.com/jcastilloa/goddgs-server/operations/domain"
+	chromePlatform "github.com/jcastilloa/goddgs-server/platform/chrome"
 	"github.com/jcastilloa/goddgs-server/platform/config"
 	containerdi "github.com/jcastilloa/goddgs-server/platform/di"
 	extractAIPlatform "github.com/jcastilloa/goddgs-server/platform/extractai"
@@ -37,16 +39,17 @@ func main() {
 	}
 
 	serverCfg := cfgRepo.ServerConfig()
+	chromeExecutable := chromePlatform.NewExecutableLocator(ctx, serverCfg.Chrome.ExecutablePath, func(path string) {
+		if err := cfgRepo.PersistChromeExecutablePath(ctx, path); err != nil {
+			log.Printf("persist discovered Chrome executable: %v", err)
+		}
+	})
 	operationsStore, err := operationsSQLite.Open(ctx, operationsSQLite.Config{DatabasePath: serverCfg.Operations.DatabasePath})
 	if err != nil {
 		log.Print(err)
 		return
 	}
-	defer func() {
-		if err := operationsStore.Close(); err != nil {
-			log.Printf("close operations storage: %v", err)
-		}
-	}()
+	defer closeOperationsStore(operationsStore)
 	if err := operationsStore.DeleteExpired(ctx, time.Now().Add(-serverCfg.Operations.Retention)); err != nil {
 		log.Printf("clean operations storage: %v", err)
 		return
@@ -66,7 +69,7 @@ func main() {
 		log.Print(err)
 		return
 	}
-	defer gateway.Close()
+	defer closeGateway(gateway)
 	if serverCfg.Operations.Probe.Enabled {
 		probeSupervisor := gateway.StartHealthProbes(ctx, goddgsPlatform.HealthProbeConfig{
 			Interval:         serverCfg.Operations.Probe.Interval,
@@ -83,7 +86,9 @@ func main() {
 		defer probeSupervisor.Stop()
 	}
 
-	searchService := searchApplication.NewService(gateway.Gateway)
+	loader, chromeManager := htmlLoader(serverCfg, gateway, eventRecorder, chromeExecutable)
+	defer closeChromeManager(chromeManager)
+	searchService := searchApplication.NewService(gateway.Gateway, loader)
 	var extractAIService searchHandler.ExtractAIUseCase
 	if configurationError := serverCfg.AIExtractionConfigurationError(); configurationError != nil {
 		extractAIService = extractAIApplication.NewUnavailableService(configurationError)
@@ -92,7 +97,7 @@ func main() {
 		if err != nil {
 			extractAIService = extractAIApplication.NewUnavailableService(err)
 		} else {
-			source := operationsApplication.NewSourceRecorder(extractAIPlatform.NewSource(gateway.Gateway), eventRecorder)
+			source := operationsApplication.NewSourceRecorder(extractAIPlatform.NewSource(searchService), eventRecorder)
 			recordedModel := operationsApplication.NewCompletionModelRecorder(model, eventRecorder, "extract_ai", "openai-compatible", serverCfg.ExtractAI.Model)
 			service := extractAIApplication.NewService(source, recordedModel)
 			extractAIService = service
@@ -116,6 +121,40 @@ func main() {
 
 	if err := httpServer.Run(ctx, serverCfg.Service.HTTPAddress()); err != nil {
 		log.Print(err)
+	}
+}
+
+func htmlLoader(serverCfg configDomain.ServerConfig, gateway *goddgsPlatform.ManagedGateway, recorder operationsApplication.EventRecorder, executable *chromePlatform.ExecutableLocator) (searchApplication.HTMLLoader, io.Closer) {
+	if !serverCfg.Chrome.Enabled {
+		return nil, nil
+	}
+	manager := chromePlatform.NewManager(chromePlatform.ManagerConfig{
+		MaxBrowsers:        serverCfg.Chrome.MaxBrowsers,
+		MaxPagesPerBrowser: serverCfg.Chrome.MaxPagesPerBrowser,
+		IdleTimeout:        serverCfg.Chrome.IdleTimeout,
+		Factory:            chromePlatform.NewChromedpFactoryWithLocator(executable),
+	})
+	return chromePlatform.NewLoader(gateway.ProxySelector(), manager, serverCfg.Chrome.Timeout, nil, recorder), manager
+}
+
+func closeChromeManager(manager io.Closer) {
+	if manager == nil {
+		return
+	}
+	if err := manager.Close(); err != nil {
+		log.Print("close Chrome manager failed")
+	}
+}
+
+func closeGateway(gateway io.Closer) {
+	if err := gateway.Close(); err != nil {
+		log.Printf("close gateway: %v", err)
+	}
+}
+
+func closeOperationsStore(store io.Closer) {
+	if err := store.Close(); err != nil {
+		log.Printf("close operations storage: %v", err)
 	}
 }
 

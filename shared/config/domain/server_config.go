@@ -16,6 +16,7 @@ type ServerConfig struct {
 	LLM             LLMConfig
 	ExtractAI       ExtractAIConfig
 	Research        ResearchConfig
+	Chrome          ChromeConfig
 	Operations      OperationsConfig
 }
 
@@ -31,6 +32,9 @@ type ProxyConfig struct {
 }
 
 func (c ServerConfig) Validate() error {
+	if err := c.Chrome.Validate(); err != nil {
+		return err
+	}
 	if c.Operations.Retention != 0 {
 		if err := c.Operations.Validate(); err != nil {
 			return err

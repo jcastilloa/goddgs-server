@@ -14,12 +14,21 @@ type Gateway interface {
 	Extract(context.Context, domain.ExtractRequest) (domain.ExtractResult, error)
 }
 
-type Service struct {
-	gateway Gateway
+type HTMLLoader interface {
+	LoadHTML(context.Context, string) (domain.ExtractResult, error)
 }
 
-func NewService(gateway Gateway) Service {
-	return Service{gateway: gateway}
+type Service struct {
+	gateway    Gateway
+	htmlLoader HTMLLoader
+}
+
+func NewService(gateway Gateway, loaders ...HTMLLoader) Service {
+	service := Service{gateway: gateway}
+	if len(loaders) > 0 {
+		service.htmlLoader = loaders[0]
+	}
+	return service
 }
 
 func (s Service) Search(ctx context.Context, request domain.SearchRequest) ([]domain.RawResult, error) {
@@ -41,6 +50,9 @@ func (s Service) Extract(ctx context.Context, request domain.ExtractRequest) (do
 	}
 	if err := request.Validate(); err != nil {
 		return domain.ExtractResult{}, err
+	}
+	if request.Format == "html" && s.htmlLoader != nil {
+		return s.htmlLoader.LoadHTML(ctx, request.URL)
 	}
 	if s.gateway == nil {
 		return domain.ExtractResult{}, ErrGatewayUnavailable

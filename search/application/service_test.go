@@ -82,6 +82,40 @@ func TestServiceExtractValidatesURLAndForwardsRequestedFormat(t *testing.T) {
 	}
 }
 
+func TestServiceExtractUsesHTMLLoaderOnlyForHTML(t *testing.T) {
+	gateway := &recordingGateway{extractResult: domain.ExtractResult{Content: "gateway"}}
+	loader := &recordingHTMLLoader{result: domain.ExtractResult{URL: "https://example.com/final", Content: "<article>rendered</article>"}}
+	service := NewService(gateway, loader)
+
+	got, err := service.Extract(context.Background(), domain.ExtractRequest{URL: "https://example.com/article", Format: "html"})
+	if err != nil {
+		t.Fatalf("Extract() HTML error = %v", err)
+	}
+	if !reflect.DeepEqual(got, loader.result) {
+		t.Errorf("Extract() HTML = %#v, want %#v", got, loader.result)
+	}
+	if len(loader.urls) != 1 || loader.urls[0] != "https://example.com/article" {
+		t.Errorf("HTML loader URLs = %#v", loader.urls)
+	}
+	if len(gateway.extracts) != 0 {
+		t.Errorf("gateway HTML extracts = %#v, want none", gateway.extracts)
+	}
+
+	got, err = service.Extract(context.Background(), domain.ExtractRequest{URL: "https://example.com/article", Format: "text_plain"})
+	if err != nil {
+		t.Fatalf("Extract() non-HTML error = %v", err)
+	}
+	if !reflect.DeepEqual(got, gateway.extractResult) {
+		t.Errorf("Extract() non-HTML = %#v, want %#v", got, gateway.extractResult)
+	}
+	if len(loader.urls) != 1 {
+		t.Errorf("HTML loader URLs after non-HTML = %#v", loader.urls)
+	}
+	if len(gateway.extracts) != 1 || gateway.extracts[0].Format != "text_plain" {
+		t.Errorf("gateway extracts = %#v", gateway.extracts)
+	}
+}
+
 func TestServiceExtractHonorsCanceledContextAndUnavailableGateway(t *testing.T) {
 	request := domain.ExtractRequest{URL: "https://example.com"}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,6 +146,17 @@ type recordingGateway struct {
 	extractError  error
 	searches      []domain.SearchRequest
 	extracts      []domain.ExtractRequest
+}
+
+type recordingHTMLLoader struct {
+	result domain.ExtractResult
+	err    error
+	urls   []string
+}
+
+func (l *recordingHTMLLoader) LoadHTML(_ context.Context, rawURL string) (domain.ExtractResult, error) {
+	l.urls = append(l.urls, rawURL)
+	return l.result, l.err
 }
 
 func (g *recordingGateway) Search(_ context.Context, request domain.SearchRequest) ([]domain.RawResult, error) {

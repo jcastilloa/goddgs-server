@@ -3,6 +3,7 @@ module github.com/jcastilloa/goddgs-server
 go 1.26.1
 
 require (
+	github.com/chromedp/chromedp v0.14.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/jcastilloa/goddgs v0.0.0-20260727140836-e245de52fd80
 	github.com/sarulabs/di v2.0.0+incompatible
@@ -15,7 +16,13 @@ require (
 )
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect
+	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
+	github.com/gobwas/httphead v0.1.0 // indirect
+	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

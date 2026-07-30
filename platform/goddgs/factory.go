@@ -34,6 +34,7 @@ type GatewayBuilder struct {
 
 type ManagedGateway struct {
 	Gateway            *Gateway
+	proxies            *proxyApplication.Pool[proxyApplication.Endpoint]
 	tunnels            []tunnelHandle
 	targets            []operationsApplication.ProbeTarget
 	reportTunnelHealth func(string, bool, uint64)
@@ -83,37 +84,46 @@ func (b GatewayBuilder) Build(ctx context.Context, config configDomain.ServerCon
 		return nil, errors.New("gateway builder is incomplete")
 	}
 
-	entries := make([]proxyApplication.Entry[Client], 0, len(config.Proxies))
+	endpoints := make([]proxyApplication.Entry[proxyApplication.Endpoint], 0, len(config.Proxies))
+	clients := make(map[string]Client, len(config.Proxies))
 	managed := &ManagedGateway{health: make(map[string]tunnelHealth)}
 	for _, proxy := range config.Proxies {
-		entry, target, tunnel, err := b.entry(ctx, proxy, config.RequestTimeout, managed)
+		endpoint, client, target, tunnel, err := b.entry(ctx, proxy, config.RequestTimeout, managed)
 		if err != nil {
 			_ = managed.Close()
 			return nil, err
 		}
-		entries = append(entries, entry)
+		endpoints = append(endpoints, endpoint)
+		clients[endpoint.Key] = client
 		managed.targets = append(managed.targets, target)
 		if tunnel != nil {
 			managed.tunnels = append(managed.tunnels, tunnel)
 		}
 	}
 
-	gateway, err := NewGateway(entries, config.MaxProxyRetries, recorders...)
+	selector, err := proxyApplication.NewPool(endpoints)
 	if err != nil {
 		_ = managed.Close()
 		return nil, err
 	}
+	gateway, err := NewGatewayWithProxySelector(selector, clients, config.MaxProxyRetries, recorders...)
+	if err != nil {
+		_ = managed.Close()
+		return nil, err
+	}
+	managed.proxies = selector
 	managed.setGateway(gateway)
 	return managed, nil
 }
 
-func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfig, timeout time.Duration, managed *ManagedGateway) (proxyApplication.Entry[Client], operationsApplication.ProbeTarget, tunnelHandle, error) {
+func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfig, timeout time.Duration, managed *ManagedGateway) (proxyApplication.Entry[proxyApplication.Endpoint], Client, operationsApplication.ProbeTarget, tunnelHandle, error) {
 	switch strings.ToLower(proxy.Type) {
 	case "direct":
-		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(proxy.URL, timeout)}, operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: effectiveTransportURL(proxy.URL)}, nil, nil
+		transportURL := effectiveTransportURL(proxy.URL)
+		return proxyApplication.Entry[proxyApplication.Endpoint]{Key: proxy.Name, Value: proxyApplication.Endpoint{TransportURL: transportURL}}, b.newClient(transportURL, timeout), operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: transportURL}, nil, nil
 	case "ssh":
 		if b.startTunnel == nil {
-			return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, errors.New("SSH tunnel factory is unavailable")
+			return proxyApplication.Entry[proxyApplication.Endpoint]{}, nil, operationsApplication.ProbeTarget{}, nil, errors.New("SSH tunnel factory is unavailable")
 		}
 		managed.reportHealth(proxy.Name, false)
 		tunnel, err := b.startTunnel(ctx, sshTunnelConfig{
@@ -124,13 +134,17 @@ func (b GatewayBuilder) entry(ctx context.Context, proxy configDomain.ProxyConfi
 			HostKey:        proxy.HostKey,
 		}, func(healthy bool) { managed.reportHealth(proxy.Name, healthy) })
 		if err != nil {
-			return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("start SSH tunnel %q: %w", proxy.Name, err)
+			return proxyApplication.Entry[proxyApplication.Endpoint]{}, nil, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("start SSH tunnel %q: %w", proxy.Name, err)
 		}
 		transportURL := tunnel.ProxyURL()
-		return proxyApplication.Entry[Client]{Key: proxy.Name, Value: b.newClient(transportURL, timeout)}, operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: transportURL, Tunnel: true}, tunnel, nil
+		return proxyApplication.Entry[proxyApplication.Endpoint]{Key: proxy.Name, Value: proxyApplication.Endpoint{TransportURL: transportURL}}, b.newClient(transportURL, timeout), operationsApplication.ProbeTarget{Name: proxy.Name, TransportURL: transportURL, Tunnel: true}, tunnel, nil
 	default:
-		return proxyApplication.Entry[Client]{}, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("unsupported proxy type %q", proxy.Type)
+		return proxyApplication.Entry[proxyApplication.Endpoint]{}, nil, operationsApplication.ProbeTarget{}, nil, fmt.Errorf("unsupported proxy type %q", proxy.Type)
 	}
+}
+
+func (g *ManagedGateway) ProxySelector() *proxyApplication.Pool[proxyApplication.Endpoint] {
+	return g.proxies
 }
 
 func effectiveTransportURL(configuredURL string) string {

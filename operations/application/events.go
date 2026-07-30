@@ -176,7 +176,7 @@ func ClassifyError(err error) operations.ErrorCategory {
 		return operations.ErrorRateLimited
 	case errors.Is(err, extractAIDomain.ErrInvalidResponse):
 		return operations.ErrorInvalidResponse
-	case errors.Is(err, extractAIDomain.ErrUnavailable), errors.Is(err, searchApplication.ErrGatewayUnavailable), errors.Is(err, proxyApplication.ErrNoHealthyProxy):
+	case errors.Is(err, extractAIDomain.ErrUnavailable), errors.Is(err, searchApplication.ErrGatewayUnavailable), errors.Is(err, searchDomain.ErrHTMLLoaderUnavailable), errors.Is(err, proxyApplication.ErrNoHealthyProxy):
 		return operations.ErrorConfiguration
 	}
 	var netError net.Error

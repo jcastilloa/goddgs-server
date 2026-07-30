@@ -56,17 +56,17 @@ func TestGatewayBuilderCreatesStableClientForSSHTunnelAndTracksHealth(t *testing
 	if got, want := createdProxies, []string{tunnel.proxyURL}; !equalStrings(got, want) {
 		t.Errorf("created proxies = %#v, want %#v", got, want)
 	}
-	if _, err := managed.Gateway.clients.Select(context.Background()); err == nil {
+	if _, err := managed.ProxySelector().Select(context.Background()); err == nil {
 		t.Error("Select() before healthy report error = nil, want error")
 	}
 
 	tunnel.report(false)
-	_, err = managed.Gateway.clients.Select(context.Background())
+	_, err = managed.ProxySelector().Select(context.Background())
 	if err == nil {
 		t.Error("Select() after unhealthy report error = nil, want error")
 	}
 	tunnel.report(true)
-	lease, err := managed.Gateway.clients.Select(context.Background())
+	lease, err := managed.ProxySelector().Select(context.Background())
 	if err != nil {
 		t.Fatalf("Select() after healthy report error = %v", err)
 	}
@@ -127,6 +127,7 @@ type fakeTunnel struct {
 	proxyURL string
 	report   func(bool)
 	closed   bool
+	onClose  func()
 }
 
 func (t *fakeTunnel) ProxyURL() string {
@@ -135,6 +136,9 @@ func (t *fakeTunnel) ProxyURL() string {
 
 func (t *fakeTunnel) Close() error {
 	t.closed = true
+	if t.onClose != nil {
+		t.onClose()
+	}
 	return nil
 }
 

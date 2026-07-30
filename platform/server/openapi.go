@@ -169,7 +169,7 @@ func researchResultSchema() gin.H {
 func modeParameter() gin.H {
 	return gin.H{
 		"name": "mode", "in": "query", "required": false,
-		"description": "Extraction strategy. `heuristic` is the default and delegates to goddgs. `ai` extracts Markdown through goddgs, converts it to sanitized HTML, sends that clean HTML to the configured OpenAI-compatible LLM, and returns sanitized primary-content HTML.",
+		"description": "Extraction strategy. `heuristic` is the default and uses goddgs except that configured Chrome handles `format=html`. `ai` sends sanitized HTML from that same source path to the configured OpenAI-compatible LLM and returns sanitized primary-content HTML.",
 		"schema":      gin.H{"type": "string", "default": "heuristic", "enum": []string{"heuristic", "ai"}},
 		"example":     "heuristic",
 	}
@@ -189,7 +189,7 @@ func extractResponses() gin.H {
 					"value":   gin.H{"URL": "https://example.com/article", "Content": "<article><h1>Article title</h1><p>Article body.</p></article>"},
 				},
 				"html": gin.H{
-					"summary": "Heuristic HTML extraction",
+					"summary": "Sanitized HTML extraction",
 					"value":   gin.H{"URL": "https://example.com/article", "Content": "<h1>Article title</h1><p>Article body.</p>"},
 				},
 			}),
@@ -198,18 +198,20 @@ func extractResponses() gin.H {
 		"401": errorResponse("Authentication is required when enabled.", "authentication_required", "authentication required"),
 		"429": errorResponse("The source or the AI provider rate limited the request.", "rate_limited", "AI extraction rate limited"),
 		"502": errorResponse("The source page or the configured AI provider could not be reached or returned an invalid response.", "upstream_failure", "search failed"),
-		"503": errorResponse("AI extraction is not configured or unavailable. Heuristic extraction remains available.", "ai_not_configured", "AI extraction is unavailable: llm.api_key is required"),
-		"504": errorResponse("The request or configured AI timeout elapsed.", "timeout", "request timed out"),
+		"503": errorResponse("AI extraction is not configured, or optional Chrome HTML loading cannot start. Chrome failures never change non-HTML extraction.", "extraction_unavailable", "HTML browser extraction is unavailable"),
+		"504": errorResponse("The request, configured AI timeout, or configured Chrome page timeout elapsed.", "timeout", "request timed out"),
 	}
 }
 
 func extractDescription() string {
 	return `Choose the extraction strategy with ` + "`mode`" + `.
 
-- ` + "`mode=heuristic`" + ` (default) preserves the existing goddgs extraction behavior. Use ` + "`format`" + ` to choose its output: ` + "`text_markdown`" + ` (default), ` + "`text_plain`" + `, ` + "`text_rich`" + `, ` + "`text`" + `, ` + "`content`" + `, or ` + "`html`" + `. ` + "`html`" + ` renders the extracted Markdown as sanitized HTML. ` + "`content`" + ` returns the unprocessed source document and can be Base64-encoded in JSON.
-- ` + "`mode=ai`" + ` asks an OpenAI-compatible ` + "`POST /chat/completions`" + ` provider for the page's primary editorial content. It supplies the same sanitized HTML that heuristic ` + "`format=html`" + ` produces, so it does not send the source document, scripts, or page chrome to the model. The response is always sanitized HTML; ` + "`format`" + ` is ignored in this mode. Navigation, sidebars, ads, banners, cookie notices, related content, scripts, forms, embedded content, unsafe URLs, event handlers, and presentation attributes are removed. Links retain only ` + "`href`" + `; images retain only ` + "`src`" + ` and ` + "`alt`" + `. URLs are not rewritten. If no editorial content exists, ` + "`Content`" + ` is an empty string.
+- ` + "`mode=heuristic`" + ` (default) preserves the existing goddgs extraction behavior. Use ` + "`format`" + ` to choose its output: ` + "`text_markdown`" + ` (default), ` + "`text_plain`" + `, ` + "`text_rich`" + `, ` + "`text`" + `, ` + "`content`" + `, or ` + "`html`" + `. When optional ` + "`chrome.enabled`" + ` is false, ` + "`html`" + ` renders extracted Markdown as sanitized HTML. When it is true, ` + "`html`" + ` loads and sanitizes rendered page DOM through Chrome/Chromium. There is no public browser mode parameter; every non-HTML format keeps the goddgs path. ` + "`content`" + ` returns the unprocessed source document and can be Base64-encoded in JSON.
+- ` + "`mode=ai`" + ` asks an OpenAI-compatible ` + "`POST /chat/completions`" + ` provider for the page's primary editorial content. It supplies sanitized ` + "`format=html`" + ` output, so with Chrome enabled AI extraction and selected research sources use the rendered DOM. The response is always sanitized HTML; ` + "`format`" + ` is ignored in this mode. Navigation, sidebars, ads, banners, cookie notices, related content, scripts, forms, embedded content, unsafe URLs, event handlers, and presentation attributes are removed. Links retain only ` + "`href`" + `; images retain only ` + "`src`" + ` and ` + "`alt`" + `. URLs are not rewritten. If no editorial content exists, ` + "`Content`" + ` is an empty string.
 
-AI mode requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.model`" + `, ` + "`extract_ai.timeout`" + `, ` + "`extract_ai.temperature`" + `, and ` + "`extract_ai.retries`" + `. It is not constrained by ` + "`service.request_timeout`" + `: extracting the Markdown through goddgs uses ` + "`service.request_timeout`" + `, then each LLM attempt gets ` + "`extract_ai.timeout`" + `. ` + "`extract_ai.retries`" + ` is the number of additional attempts after the first for retryable transport errors, rate limits, retryable HTTP statuses, and attempt timeouts. When it is not usable, this endpoint returns ` + "`503`" + ` with the missing or invalid configuration; ` + "`mode=heuristic`" + ` continues to work.`
+Chrome requires a compatible executable and positive ` + "`chrome.timeout`" + `, ` + "`chrome.max_browsers`" + `, ` + "`chrome.max_pages_per_browser`" + `, and ` + "`chrome.idle_timeout`" + ` when enabled. It uses the same health-aware direct and SSH proxy rotation as goddgs. A page receives the earlier of its caller deadline and ` + "`chrome.timeout`" + `; unavailable browser or proxy capacity returns ` + "`503`" + `, page timeout returns ` + "`504`" + `, and a page navigation failure returns ` + "`502`" + `. Proxy credentials, browser paths, and CDP details are never returned.
+
+AI mode requires ` + "`llm.base_url`" + `, ` + "`llm.api_key`" + `, ` + "`extract_ai.model`" + `, ` + "`extract_ai.timeout`" + `, ` + "`extract_ai.temperature`" + `, and ` + "`extract_ai.retries`" + `. It is not constrained by ` + "`service.request_timeout`" + `: source loading is bounded by ` + "`chrome.timeout`" + ` when Chrome is enabled, then each LLM attempt gets ` + "`extract_ai.timeout`" + `. ` + "`extract_ai.retries`" + ` is the number of additional attempts after the first for retryable transport errors, rate limits, retryable HTTP statuses, and attempt timeouts. When it is not usable, this endpoint returns ` + "`503`" + ` with the missing or invalid configuration; ` + "`mode=heuristic`" + ` continues to work.`
 }
 
 func extractURLParameter() gin.H {
@@ -224,7 +226,7 @@ func extractURLParameter() gin.H {
 func extractFormatParameter() gin.H {
 	return gin.H{
 		"name": "format", "in": "query", "required": false,
-		"description": "Output format used only by `mode=heuristic`. `html` renders extracted Markdown as sanitized HTML. `content` returns the unprocessed source document, which can be Base64-encoded in JSON. Ignored by `mode=ai`, which always returns sanitized HTML.",
+		"description": "Output format used only by `mode=heuristic`. With `chrome.enabled=false`, `html` renders extracted Markdown as sanitized HTML; when enabled, it returns sanitized rendered DOM from Chrome/Chromium. `content` returns the unprocessed source document, which can be Base64-encoded in JSON. Ignored by `mode=ai`, which always returns sanitized HTML.",
 		"schema": gin.H{
 			"type": "string", "default": "text_markdown",
 			"enum": []string{"text_markdown", "text_plain", "text_rich", "text", "content", "html"},
@@ -239,7 +241,7 @@ func extractResultSchema() gin.H {
 		"required": []string{"URL", "Content"},
 		"properties": gin.H{
 			"URL":     gin.H{"type": "string", "format": "uri", "description": "Final source URL after redirects, when available."},
-			"Content": gin.H{"description": "Extracted content. Dynamic source content in heuristic mode; sanitized HTML string in AI mode."},
+			"Content": gin.H{"description": "Extracted content. `format=html` is sanitized HTML; with Chrome enabled it is the rendered DOM. AI mode always returns sanitized HTML."},
 		},
 	}
 }

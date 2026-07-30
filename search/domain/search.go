@@ -12,6 +12,8 @@ var (
 	ErrInvalidExtractRequest = errors.New("invalid extract request")
 	ErrRateLimited           = errors.New("search rate limited")
 	ErrSearchTimeout         = errors.New("search timed out")
+	ErrHTMLLoaderUnavailable = errors.New("HTML loader is unavailable")
+	ErrHTMLLoaderNavigation  = errors.New("HTML loader navigation failed")
 )
 
 type Category string

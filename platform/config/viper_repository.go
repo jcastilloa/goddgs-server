@@ -1,10 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jcastilloa/goddgs-server/shared/buildinfo"
@@ -14,10 +17,11 @@ import (
 )
 
 type ViperRepository struct {
-	v *viper.Viper
+	v       *viper.Viper
+	writeMu sync.Mutex
 }
 
-func New(serviceName string) (configDomain.Repository, error) {
+func New(serviceName string) (*ViperRepository, error) {
 	v := viper.New()
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -90,6 +94,22 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 	if !r.v.IsSet("operations.dashboard_auth.session_ttl") {
 		dashboardSessionTTL = configDomain.DefaultDashboardAuthSessionTTL
 	}
+	chromeTimeout := r.v.GetDuration("chrome.timeout")
+	if !r.v.IsSet("chrome.timeout") {
+		chromeTimeout = configDomain.DefaultChromeTimeout
+	}
+	chromeMaxBrowsers := r.v.GetInt("chrome.max_browsers")
+	if !r.v.IsSet("chrome.max_browsers") {
+		chromeMaxBrowsers = configDomain.DefaultChromeMaxBrowsers
+	}
+	chromeMaxPages := r.v.GetInt("chrome.max_pages_per_browser")
+	if !r.v.IsSet("chrome.max_pages_per_browser") {
+		chromeMaxPages = configDomain.DefaultChromeMaxPagesPerBrowser
+	}
+	chromeIdleTimeout := r.v.GetDuration("chrome.idle_timeout")
+	if !r.v.IsSet("chrome.idle_timeout") {
+		chromeIdleTimeout = configDomain.DefaultChromeIdleTimeout
+	}
 
 	return configDomain.ServerConfig{
 		Service:         r.ServiceConfig(),
@@ -132,6 +152,14 @@ func (r *ViperRepository) ServerConfig() configDomain.ServerConfig {
 				Retries:     r.v.GetInt("research.report_ai.retries"),
 			},
 		},
+		Chrome: configDomain.ChromeConfig{
+			Enabled:            r.v.GetBool("chrome.enabled"),
+			ExecutablePath:     r.v.GetString("chrome.executable_path"),
+			Timeout:            chromeTimeout,
+			MaxBrowsers:        chromeMaxBrowsers,
+			MaxPagesPerBrowser: chromeMaxPages,
+			IdleTimeout:        chromeIdleTimeout,
+		},
 		Operations: configDomain.OperationsConfig{
 			DatabasePath: r.v.GetString("operations.database_path"),
 			Retention:    operationsRetention,
@@ -157,4 +185,160 @@ func (r *ViperRepository) proxyConfigs() []configDomain.ProxyConfig {
 		return nil
 	}
 	return proxies
+}
+
+func (r *ViperRepository) PersistChromeExecutablePath(ctx context.Context, executablePath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	executablePath = strings.TrimSpace(executablePath)
+	if executablePath == "" || strings.TrimSpace(r.v.GetString("chrome.executable_path")) != "" {
+		return nil
+	}
+
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	return persistChromeExecutablePath(ctx, r.v.ConfigFileUsed(), executablePath)
+}
+
+func persistChromeExecutablePath(ctx context.Context, configPath, executablePath string) error {
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read configuration: %w", err)
+	}
+	updated, changed := setChromeExecutablePath(string(contents), executablePath)
+	if !changed {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return writeConfigurationAtomically(configPath, []byte(updated))
+}
+
+func setChromeExecutablePath(contents, executablePath string) (string, bool) {
+	lines := strings.SplitAfter(contents, "\n")
+	chromeStart, chromeEnd := chromeSection(lines)
+	if chromeStart == -1 {
+		return appendChromeSection(contents, executablePath), true
+	}
+
+	value := strconv.Quote(executablePath)
+	for index := chromeStart + 1; index < chromeEnd; index++ {
+		if indentation(lines[index]) == "" || !strings.HasPrefix(strings.TrimSpace(lines[index]), "executable_path:") {
+			continue
+		}
+		updated, changed := setChromeExecutablePathLine(lines[index], executablePath)
+		if !changed {
+			return contents, false
+		}
+		lines[index] = updated
+		return strings.Join(lines, ""), true
+	}
+
+	indent := chromeIndent(lines, chromeStart, chromeEnd)
+	lines = append(lines[:chromeStart+1], append([]string{indent + "executable_path: " + value + "\n"}, lines[chromeStart+1:]...)...)
+	return strings.Join(lines, ""), true
+}
+
+func setChromeExecutablePathLine(line, executablePath string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	value := strings.TrimPrefix(trimmed, "executable_path:")
+	value, comment := splitYAMLComment(value)
+	if !isEmptyYAMLValue(strings.TrimSpace(value)) {
+		return line, false
+	}
+	return indentation(line) + "executable_path: " + strconv.Quote(executablePath) + comment + lineEnding(line), true
+}
+
+func splitYAMLComment(value string) (string, string) {
+	commentIndex := strings.Index(value, "#")
+	if commentIndex == -1 {
+		return value, ""
+	}
+	beforeComment := value[:commentIndex]
+	return beforeComment, value[len(strings.TrimRight(beforeComment, " \t")):]
+}
+
+func isEmptyYAMLValue(value string) bool {
+	return value == "" || value == `""` || value == `''` || value == "~" || strings.EqualFold(value, "null")
+}
+
+func chromeSection(lines []string) (int, int) {
+	for index, line := range lines {
+		if indentation(line) == "" && strings.TrimSpace(line) == "chrome:" {
+			end := index + 1
+			for end < len(lines) && !isTopLevelSetting(lines[end]) {
+				end++
+			}
+			return index, end
+		}
+	}
+	return -1, -1
+}
+
+func isTopLevelSetting(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed != "" && !strings.HasPrefix(trimmed, "#") && indentation(line) == ""
+}
+
+func chromeIndent(lines []string, start, end int) string {
+	for index := start + 1; index < end; index++ {
+		if indent := indentation(lines[index]); indent != "" {
+			return indent
+		}
+	}
+	return "  "
+}
+
+func indentation(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+func lineEnding(line string) string {
+	if strings.HasSuffix(line, "\r\n") {
+		return "\r\n"
+	}
+	if strings.HasSuffix(line, "\n") {
+		return "\n"
+	}
+	return ""
+}
+
+func appendChromeSection(contents, executablePath string) string {
+	if contents != "" && !strings.HasSuffix(contents, "\n") {
+		contents += "\n"
+	}
+	if contents != "" {
+		contents += "\n"
+	}
+	return contents + "chrome:\n  executable_path: " + strconv.Quote(executablePath) + "\n"
+}
+
+func writeConfigurationAtomically(path string, contents []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat configuration: %w", err)
+	}
+	temporaryFile, err := os.CreateTemp(filepath.Dir(path), ".config-*")
+	if err != nil {
+		return fmt.Errorf("create temporary configuration: %w", err)
+	}
+	temporaryPath := temporaryFile.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporaryFile.Chmod(info.Mode()); err != nil {
+		temporaryFile.Close()
+		return fmt.Errorf("set temporary configuration permissions: %w", err)
+	}
+	if _, err := temporaryFile.Write(contents); err != nil {
+		temporaryFile.Close()
+		return fmt.Errorf("write temporary configuration: %w", err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return fmt.Errorf("close temporary configuration: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace configuration: %w", err)
+	}
+	return nil
 }

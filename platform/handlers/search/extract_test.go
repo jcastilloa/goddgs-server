@@ -96,6 +96,30 @@ func TestExtractHandlerRejectsUnsupportedModeAndReportsUnavailableAI(t *testing.
 	}
 }
 
+func TestExtractHandlerMapsHTMLBrowserFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "unavailable", err: domain.ErrHTMLLoaderUnavailable, wantStatus: http.StatusServiceUnavailable},
+		{name: "timeout", err: context.DeadlineExceeded, wantStatus: http.StatusGatewayTimeout},
+		{name: "navigation", err: domain.ErrHTMLLoaderNavigation, wantStatus: http.StatusBadGateway},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			engine := gin.New()
+			engine.GET("/extract", NewExtract(&recordingExtractUseCase{err: testCase.err}, nil).Handle)
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/extract?url=https%3A%2F%2Fexample.com&format=html", nil))
+			if recorder.Code != testCase.wantStatus {
+				t.Errorf("status = %d, want %d", recorder.Code, testCase.wantStatus)
+			}
+		})
+	}
+}
+
 func TestExtractHandlerRejectsMissingOrUnsupportedURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	useCase := &recordingExtractUseCase{}
